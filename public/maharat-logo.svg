@@ -1,0 +1,27 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 200 200"
+  role="img"
+  aria-labelledby="title"
+>
+  <title id="title">مهارات</title>
+  <path
+    fill="#F8BE3F"
+    d="M100 12C111 12 118 28 123 39L137 69L171 75C187 78 193 91 182 103L158 128L163 162C166 179 151 188 137 181L100 162L63 181C49 188 34 179 37 162L42 128L18 103C7 91 13 78 29 75L63 69L77 39C82 28 89 12 100 12Z"
+  />
+  <g fill="#332D3B">
+    <rect width="14" height="24" x="69" y="88" rx="7" />
+    <rect width="14" height="24" x="117" y="88" rx="7" />
+  </g>
+  <g fill="#FFFFFF">
+    <circle cx="78" cy="94" r="2.5" />
+    <circle cx="126" cy="94" r="2.5" />
+  </g>
+  <path
+    fill="none"
+    stroke="#332D3B"
+    stroke-linecap="round"
+    stroke-width="7"
+    d="M80 120C91 134 109 134 120 120"
+  />
+</svg>
