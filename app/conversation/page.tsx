@@ -68,7 +68,7 @@ function appendMessage(messages: Message[], message: Message) {
 
 function ConversationHeader() {
   return (
-    <header className="flex h-20 shrink-0 items-center justify-center border-b border-white/8 bg-background px-5">
+    <header className="flex h-20 shrink-0 items-center justify-center bg-background px-5">
       <Image src="/maharat-logo.svg" alt="مهارات" width={48} height={48} />
     </header>
   );
@@ -325,7 +325,7 @@ function ConversationRecorder({
   onPreviewError: () => void;
 }) {
   return (
-    <footer className="safe-area-pb shrink-0 border-t border-white/8 bg-background px-5 py-5">
+    <footer className="safe-area-pb shrink-0 bg-background px-5 py-5">
       <div className="mx-auto flex min-h-14 max-w-lg flex-col gap-4">
         {phase === "paused" && previewUrl ? (
           <RecordingPreview
