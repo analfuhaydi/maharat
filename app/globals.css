@@ -42,17 +42,10 @@ button {
   display: none;
 }
 
-.preview-audio {
-  border-radius: 9999px;
-  background: #272a2d;
+.preview-audio-range {
+  height: 1rem;
   accent-color: var(--brand);
-  color-scheme: dark;
-}
-
-.preview-audio::-webkit-media-controls-enclosure,
-.preview-audio::-webkit-media-controls-panel {
-  border-radius: 9999px;
-  background-color: #272a2d;
+  cursor: pointer;
 }
 
 ::selection {

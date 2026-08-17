@@ -20,6 +20,7 @@ import {
   type Message,
 } from "@/lib/conversation-schema";
 import { firebaseAuth } from "@/lib/firebase-client";
+import { playTtsAudio, stopTtsAudio, unlockTtsAudio } from "@/lib/tts-audio";
 
 const CONVERSATION_ID_KEY = "maharatConversationId";
 const OPENING_MESSAGE_KEY = "maharatOpeningMessage";
@@ -49,6 +50,16 @@ function base64ToAudioUrl(audioBase64: string) {
   return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
 }
 
+function formatAudioTime(value: number) {
+  if (!Number.isFinite(value) || value < 0) {
+    return "0:00";
+  }
+
+  const minutes = Math.floor(value / 60);
+  const seconds = Math.floor(value % 60);
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 function appendMessage(messages: Message[], message: Message) {
   return messages.some((existingMessage) => existingMessage.id === message.id)
     ? messages
@@ -66,11 +77,13 @@ function ConversationHeader() {
 function MessageBubble({
   message,
   audioUrl,
+  isAudioLoading,
   onPlay,
 }: {
   message: Message;
   audioUrl?: string;
-  onPlay: (message: MaharatMessage, audioUrl: string) => void;
+  isAudioLoading: boolean;
+  onPlay: (message: MaharatMessage, audioUrl?: string) => void;
 }) {
   const isMaharat = message.sender === "maharat";
   const text = isMaharat ? message.text : message.whisperResponse.text;
@@ -90,14 +103,22 @@ function MessageBubble({
         dir="ltr"
       >
         <p>{text}</p>
-        {isMaharat && audioUrl ? (
+        {isMaharat ? (
           <button
             type="button"
             onClick={() => onPlay(message, audioUrl)}
-            className="mb-0.5 grid size-8 shrink-0 place-items-center rounded-full text-brand transition-colors hover:bg-white/6 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            disabled={isAudioLoading}
+            className="mb-0.5 grid size-8 shrink-0 place-items-center rounded-full text-brand transition-colors hover:bg-white/6 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-wait disabled:opacity-60"
             aria-label="تشغيل الرسالة"
           >
-            <Play className="size-4 fill-current" aria-hidden="true" />
+            {isAudioLoading ? (
+              <LoaderCircle
+                className="size-4 animate-spin"
+                aria-hidden="true"
+              />
+            ) : (
+              <Play className="size-4 fill-current" aria-hidden="true" />
+            )}
           </button>
         ) : null}
       </div>
@@ -115,6 +136,7 @@ function ConversationHistory({
   messages,
   phase,
   audioUrls,
+  loadingAudioMessageId,
   historyRef,
   onScroll,
   onPlay,
@@ -122,9 +144,10 @@ function ConversationHistory({
   messages: Message[];
   phase: ConversationPhase;
   audioUrls: AudioUrls;
+  loadingAudioMessageId: string | null;
   historyRef: RefObject<HTMLDivElement | null>;
   onScroll: () => void;
-  onPlay: (message: MaharatMessage, audioUrl: string) => void;
+  onPlay: (message: MaharatMessage, audioUrl?: string) => void;
 }) {
   const pendingLabel =
     phase === "thinking" || phase === "generatingSpeech" ? "يسجل.." : null;
@@ -141,6 +164,7 @@ function ConversationHistory({
           key={message.id}
           message={message}
           audioUrl={audioUrls[message.id]}
+          isAudioLoading={loadingAudioMessageId === message.id}
           onPlay={onPlay}
         />
       ))}
@@ -170,7 +194,7 @@ function IconButton({
     <button
       type="button"
       onClick={onClick}
-      className={`grid size-12 place-items-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-brand ${
+      className={`grid size-16 place-items-center rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand ${
         emphasis
           ? "bg-brand text-[#332d3b] hover:bg-[#ffc954]"
           : "bg-[#272a2d] text-foreground hover:bg-[#303438]"
@@ -180,6 +204,104 @@ function IconButton({
     >
       {children}
     </button>
+  );
+}
+
+function RecordingPreview({
+  previewUrl,
+  audioRef,
+  onError,
+}: {
+  previewUrl: string;
+  audioRef: RefObject<HTMLAudioElement | null>;
+  onError: () => void;
+}) {
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  async function togglePlayback() {
+    const audio = audioRef.current;
+
+    if (!audio) {
+      return;
+    }
+
+    if (audio.paused) {
+      try {
+        await audio.play();
+      } catch {
+        onError();
+      }
+    } else {
+      audio.pause();
+    }
+  }
+
+  function seek(value: string) {
+    const audio = audioRef.current;
+
+    if (!audio) {
+      return;
+    }
+
+    const nextTime = Number(value);
+    audio.currentTime = nextTime;
+    setCurrentTime(nextTime);
+  }
+
+  return (
+    <div
+      className="flex h-14 w-full items-center gap-3 rounded-full bg-[#272a2d] px-3"
+      dir="ltr"
+    >
+      <audio
+        ref={audioRef}
+        src={previewUrl}
+        preload="metadata"
+        onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
+        onDurationChange={(event) => setDuration(event.currentTarget.duration)}
+        onTimeUpdate={(event) =>
+          setCurrentTime(event.currentTarget.currentTime)
+        }
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onEnded={() => {
+          setIsPlaying(false);
+          setCurrentTime(0);
+        }}
+        onError={onError}
+        className="hidden"
+      />
+      <button
+        type="button"
+        onClick={togglePlayback}
+        className="grid size-10 shrink-0 place-items-center rounded-full text-foreground transition-colors hover:bg-white/8 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        aria-label={isPlaying ? "إيقاف التسجيل مؤقتًا" : "تشغيل التسجيل"}
+      >
+        {isPlaying ? (
+          <Pause className="size-5 fill-current" aria-hidden="true" />
+        ) : (
+          <Play className="size-5 fill-current" aria-hidden="true" />
+        )}
+      </button>
+      <span className="w-9 shrink-0 text-center text-xs text-secondary tabular-nums">
+        {formatAudioTime(currentTime)}
+      </span>
+      <input
+        type="range"
+        min="0"
+        max={duration || 0}
+        step="0.01"
+        value={Math.min(currentTime, duration || 0)}
+        onChange={(event) => seek(event.target.value)}
+        className="preview-audio-range min-w-0 flex-1"
+        aria-label="موضع تشغيل التسجيل"
+      />
+      <span className="w-9 shrink-0 text-center text-xs text-secondary tabular-nums">
+        {formatAudioTime(duration)}
+      </span>
+    </div>
   );
 }
 
@@ -206,14 +328,10 @@ function ConversationRecorder({
     <footer className="safe-area-pb shrink-0 border-t border-white/8 bg-background px-5 py-5">
       <div className="mx-auto flex min-h-14 max-w-lg flex-col gap-4">
         {phase === "paused" && previewUrl ? (
-          <audio
-            ref={previewAudioRef}
-            src={previewUrl}
-            controls
-            preload="metadata"
+          <RecordingPreview
+            previewUrl={previewUrl}
+            audioRef={previewAudioRef}
             onError={onPreviewError}
-            className="preview-audio h-12 w-full"
-            aria-label="استمع إلى تسجيلك"
           />
         ) : null}
 
@@ -232,7 +350,7 @@ function ConversationRecorder({
 
           {phase === "recording" ? (
             <IconButton label="إيقاف مؤقت" onClick={onPause} emphasis>
-              <Pause className="size-5 fill-current" aria-hidden="true" />
+              <Pause className="size-7 fill-current" aria-hidden="true" />
             </IconButton>
           ) : null}
 
@@ -286,6 +404,9 @@ export default function ConversationPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [phase, setPhase] = useState<ConversationPhase>("idle");
   const [audioUrls, setAudioUrls] = useState<AudioUrls>({});
+  const [loadingAudioMessageId, setLoadingAudioMessageId] = useState<
+    string | null
+  >(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
   const historyRef = useRef<HTMLDivElement>(null);
@@ -297,7 +418,6 @@ export default function ConversationPage() {
   const recordingStartedAtRef = useRef(0);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const previewUrlRef = useRef<string | null>(null);
-  const messageAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlsRef = useRef<AudioUrls>({});
 
   const getToken = useCallback(async () => {
@@ -340,41 +460,62 @@ export default function ConversationPage() {
   );
 
   const playMessage = useCallback(
-    async (message: MaharatMessage, audioUrl: string) => {
-      messageAudioRef.current?.pause();
-      const audio = new Audio(audioUrl);
-      messageAudioRef.current = audio;
-      setPhase("playing");
+    async (message: MaharatMessage, audioUrl?: string) => {
       setError("");
 
-      audio.addEventListener(
-        "play",
-        () => {
-          void updatePlayback(message.id, {
-            playbackStartedAt: new Date().toISOString(),
-          });
-        },
-        { once: true },
-      );
-      audio.addEventListener(
-        "ended",
-        () => {
-          setPhase("idle");
-          void updatePlayback(message.id, {
-            playbackEndedAt: new Date().toISOString(),
-          });
-        },
-        { once: true },
-      );
-
       try {
-        await audio.play();
+        let resolvedAudioUrl = audioUrl;
+
+        if (!resolvedAudioUrl) {
+          const conversationId = conversationIdRef.current;
+
+          if (!conversationId) {
+            return;
+          }
+
+          setLoadingAudioMessageId(message.id);
+          const token = await getToken();
+          const response = await fetch(
+            `/api/conversations/${conversationId}/messages/${message.id}/speech`,
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+
+          if (!response.ok) {
+            throw new Error("Failed to load message audio.");
+          }
+
+          resolvedAudioUrl = URL.createObjectURL(await response.blob());
+          audioUrlsRef.current = {
+            ...audioUrlsRef.current,
+            [message.id]: resolvedAudioUrl,
+          };
+          setAudioUrls(audioUrlsRef.current);
+        }
+
+        setPhase("playing");
+        await playTtsAudio(resolvedAudioUrl, {
+          onPlay: () => {
+            void updatePlayback(message.id, {
+              playbackStartedAt: new Date().toISOString(),
+            });
+          },
+          onEnded: () => {
+            setPhase("idle");
+            void updatePlayback(message.id, {
+              playbackEndedAt: new Date().toISOString(),
+            });
+          },
+        });
       } catch {
         setPhase("idle");
         setError("اضغط زر التشغيل للاستماع للرسالة.");
+      } finally {
+        setLoadingAudioMessageId((current) =>
+          current === message.id ? null : current,
+        );
       }
     },
-    [updatePlayback],
+    [getToken, updatePlayback],
   );
 
   useEffect(() => {
@@ -455,7 +596,7 @@ export default function ConversationPage() {
     return () => {
       mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
       previewAudioRef.current?.pause();
-      messageAudioRef.current?.pause();
+      stopTtsAudio();
       Object.values(audioUrlsRef.current).forEach(URL.revokeObjectURL);
       if (previewUrlRef.current) {
         URL.revokeObjectURL(previewUrlRef.current);
@@ -491,6 +632,7 @@ export default function ConversationPage() {
   }
 
   async function startRecording() {
+    unlockTtsAudio();
     setError("");
 
     try {
@@ -581,6 +723,7 @@ export default function ConversationPage() {
       return;
     }
 
+    unlockTtsAudio();
     previewAudioRef.current?.pause();
     setPhase("transcribing");
     setError("");
@@ -670,6 +813,7 @@ export default function ConversationPage() {
         messages={messages}
         phase={phase}
         audioUrls={audioUrls}
+        loadingAudioMessageId={loadingAudioMessageId}
         historyRef={historyRef}
         onScroll={handleHistoryScroll}
         onPlay={playMessage}

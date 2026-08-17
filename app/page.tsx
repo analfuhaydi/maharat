@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 
 import { ConversationCreatedResponseSchema } from "@/lib/conversation-schema";
 import { firebaseAuth } from "@/lib/firebase-client";
+import { unlockTtsAudio } from "@/lib/tts-audio";
 
 const CONVERSATION_ID_KEY = "maharatConversationId";
 const OPENING_MESSAGE_KEY = "maharatOpeningMessage";
@@ -22,6 +23,7 @@ export default function Home() {
       return;
     }
 
+    unlockTtsAudio();
     setIsStarting(true);
     setError("");
 
