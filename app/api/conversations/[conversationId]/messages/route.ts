@@ -22,8 +22,6 @@ import {
 import {
   generateCoachResponse,
   generateMateResponse,
-  generateMateSpeech,
-  generateSpeech,
   transcribeRecording,
   type ConversationMessage,
 } from "@/lib/groq";
@@ -187,25 +185,11 @@ export async function POST(request: Request, context: RouteContext) {
               throw new Error("Initial rejection is missing a suggestion.");
             }
 
-            let suggestedSpokenVersionAudioBase64: string | null = null;
-
-            try {
-              suggestedSpokenVersionAudioBase64 = Buffer.from(
-                await generateSpeech(coach.suggestedSpokenVersion),
-              ).toString("base64");
-            } catch (error) {
-              console.warn(
-                "Coach suggested version audio is temporarily unavailable",
-                error,
-              );
-            }
-
             send({
               type: "coachFeedback",
               accepted: false,
               transcript: whisperResponse.text,
               suggestedSpokenVersion: coach.suggestedSpokenVersion,
-              suggestedSpokenVersionAudioBase64,
             });
           } else {
             send({
@@ -252,16 +236,6 @@ export async function POST(request: Request, context: RouteContext) {
           toConversationHistory([...messages, userMessage]),
         );
 
-        let audioBase64: string | null = null;
-
-        try {
-          audioBase64 = Buffer.from(
-            await generateMateSpeech(mate.text),
-          ).toString("base64");
-        } catch (error) {
-          console.warn("Mate reply audio is temporarily unavailable", error);
-        }
-
         const mateCreatedAt = Timestamp.now();
         const mateMessageReference = getNextMessageReference(reference);
         const mateMessage: MateMessage = {
@@ -282,15 +256,7 @@ export async function POST(request: Request, context: RouteContext) {
         send({
           type: "mateMessage",
           message: mateMessage,
-          audioBase64,
         });
-
-        if (!audioBase64) {
-          send({
-            type: "error",
-            message: "ردّ مهارات جاهز، لكن الصوت غير متاح مؤقتًا.",
-          });
-        }
       } catch (error) {
         console.error("Failed to process conversation message", error);
         send({ type: "error", message: "تعذر إكمال المحادثة. حاول مرة أخرى." });

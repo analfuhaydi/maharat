@@ -10,7 +10,7 @@ import {
   getAuthenticatedUserId,
   getNextMessageReference,
 } from "@/lib/firebase-admin";
-import { generateMateResponse, generateMateSpeech } from "@/lib/groq";
+import { generateMateResponse } from "@/lib/groq";
 
 export async function POST(request: Request) {
   let userId: string;
@@ -34,15 +34,6 @@ export async function POST(request: Request) {
     }
 
     const mate = await generateMateResponse([], startRequest.data.timeOfDay);
-    let audioBase64: string | null = null;
-
-    try {
-      audioBase64 = Buffer.from(await generateMateSpeech(mate.text)).toString(
-        "base64",
-      );
-    } catch (error) {
-      console.warn("Mate opening audio is temporarily unavailable", error);
-    }
     const createdAt = Timestamp.now();
     const userReference = firestore.collection("users").doc(userId);
     const conversationReference = userReference
@@ -76,7 +67,6 @@ export async function POST(request: Request) {
       ConversationCreatedResponseSchema.parse({
         conversationId: conversationReference.id,
         message,
-        audioBase64,
       }),
     );
   } catch (error) {

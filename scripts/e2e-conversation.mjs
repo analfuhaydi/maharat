@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
-import Groq from "groq-sdk";
 
 const port = Number(process.env.E2E_PORT || 3100);
 const baseUrl = process.env.E2E_BASE_URL || `http://127.0.0.1:${port}`;
@@ -41,7 +41,6 @@ function getAdminApp() {
 
 const adminAuth = getAuth(getAdminApp());
 const firestore = getFirestore(getAdminApp());
-const groq = new Groq({ apiKey: groqApiKey });
 let devServer;
 let userId;
 let conversationId;
@@ -109,14 +108,8 @@ async function createConversation(idToken) {
   return response.json();
 }
 
-async function generateAudio(text) {
-  const response = await groq.audio.speech.create({
-    model: "canopylabs/orpheus-v1-english",
-    voice: "autumn",
-    input: text,
-    response_format: "wav",
-  });
-  return response.arrayBuffer();
+async function readAudioFixture(name) {
+  return readFile(new URL(`fixtures/${name}`, import.meta.url));
 }
 
 async function submitRecording(idToken, audio, attemptKind, retryContext) {
@@ -160,24 +153,6 @@ async function readMessages(idToken) {
   return response.json();
 }
 
-async function readSpeech(idToken, messageId) {
-  const response = await fetch(
-    `${baseUrl}/api/conversations/${conversationId}/messages/${messageId}/speech`,
-    { headers: { Authorization: `Bearer ${idToken}` } },
-  );
-  if (!response.ok) {
-    throw new Error(`Speech regeneration failed: ${await response.text()}`);
-  }
-  assert(
-    response.headers.get("content-type")?.startsWith("audio/wav"),
-    "Speech regeneration did not return WAV audio.",
-  );
-  assert(
-    (await response.arrayBuffer()).byteLength > 100,
-    "Speech audio was empty.",
-  );
-}
-
 async function cleanup() {
   if (userId && conversationId) {
     const conversationReference = firestore
@@ -216,14 +191,9 @@ async function run() {
     opening.message.arabicTranslation,
     "Opening Arabic translation was missing.",
   );
-  assert(
-    typeof opening.audioBase64 === "string" && opening.audioBase64.length > 100,
-    "Opening audio was missing.",
-  );
+  assert(!("audioBase64" in opening), "Opening response included TTS audio.");
 
-  const weakAudio = await generateAudio(
-    "Yesterday I no understand the meeting because everybody was talk too fast and I am not know what to say.",
-  );
+  const weakAudio = await readAudioFixture("weak-response.wav");
   const firstEvents = await submitRecording(auth.idToken, weakAudio, "initial");
   const firstFeedback = firstEvents.find(
     (event) => event.type === "coachFeedback",
@@ -237,9 +207,8 @@ async function run() {
     "Suggested spoken version was missing.",
   );
   assert(
-    typeof firstFeedback.suggestedSpokenVersionAudioBase64 === "string" &&
-      firstFeedback.suggestedSpokenVersionAudioBase64.length > 100,
-    "Suggested spoken version audio was missing.",
+    !("suggestedSpokenVersionAudioBase64" in firstFeedback),
+    "Coach feedback included TTS audio.",
   );
   assert(!("lesson" in firstFeedback), "Coach lesson should be removed.");
   assert(
@@ -272,9 +241,7 @@ async function run() {
     "Mate replied to a rejected retry.",
   );
 
-  const strongAudio = await generateAudio(
-    "I did not understand the meeting yesterday because everyone was speaking too quickly, and I did not know what to say.",
-  );
+  const strongAudio = await readAudioFixture("corrected-response.wav");
   const acceptedEvents = await submitRecording(
     auth.idToken,
     strongAudio,
@@ -295,10 +262,7 @@ async function run() {
     mateEvent.message.arabicTranslation,
     "Mate Arabic translation was missing.",
   );
-  assert(
-    mateEvent.audioBase64.length > 100,
-    "Mate response audio was missing.",
-  );
+  assert(!("audioBase64" in mateEvent), "Mate response included TTS audio.");
   assert(
     !JSON.stringify(mateEvent).includes("suggestedSpokenVersion"),
     "Coach feedback leaked into Mate output.",
@@ -319,11 +283,7 @@ async function run() {
     mateMessages.length === 2,
     "The saved Mate message count was incorrect.",
   );
-  await readSpeech(auth.idToken, mateEvent.message.id);
-
-  const secondAudio = await generateAudio(
-    "I am improving my communication skills by practicing every day.",
-  );
+  const secondAudio = await readAudioFixture("accepted-response.wav");
   const secondEvents = await submitRecording(
     auth.idToken,
     secondAudio,

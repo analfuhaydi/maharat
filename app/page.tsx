@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
-import { Languages, LoaderCircle, Pause, Play, Volume2, X } from "lucide-react";
+import { Languages, LoaderCircle, Pause, Play, X } from "lucide-react";
 import Image from "next/image";
 
 import {
@@ -14,7 +14,6 @@ import {
   type RetryContext,
 } from "@/lib/conversation-schema";
 import { firebaseAuth } from "@/lib/firebase-client";
-import { playTtsAudio, stopTtsAudio, unlockTtsAudio } from "@/lib/tts-audio";
 
 const CONVERSATION_ID_KEY = "maharatConversationId";
 
@@ -27,14 +26,12 @@ type Phase =
   | "coaching"
   | "correcting"
   | "accepted"
-  | "mate-thinking"
-  | "mate-speaking";
+  | "mate-thinking";
 type AttemptKind = "initial" | "retry";
 type CoachState = {
   retryContext: RetryContext;
   currentTranscript: string;
   audioUrl: string;
-  suggestedSpokenVersionAudioUrl: string | null;
 };
 
 function getLocalTimeOfDay(): TimeOfDay {
@@ -45,25 +42,14 @@ function getLocalTimeOfDay(): TimeOfDay {
   return "evening";
 }
 
-function base64ToAudioUrl(audioBase64: string) {
-  const bytes = Uint8Array.from(atob(audioBase64), (character) =>
-    character.charCodeAt(0),
-  );
-  return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
-}
-
 function MessageBubble({
   message,
   translated,
-  loadingAudio,
   onTranslate,
-  onPlay,
 }: {
   message: Message;
   translated: boolean;
-  loadingAudio: boolean;
   onTranslate: () => void;
-  onPlay: () => void;
 }) {
   const isMate = message.sender === "mate";
   const text = isMate ? message.text : message.transcript;
@@ -89,20 +75,7 @@ function MessageBubble({
         ) : null}
       </div>
       {isMate ? (
-        <div className="mt-1 flex items-center gap-1 text-secondary" dir="ltr">
-          <button
-            type="button"
-            onClick={onPlay}
-            disabled={loadingAudio}
-            className="grid size-8 place-items-center rounded-full hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-wait disabled:opacity-60"
-            aria-label="تشغيل الرسالة"
-          >
-            {loadingAudio ? (
-              <LoaderCircle className="size-4 shrink-0 origin-center animate-spin" />
-            ) : (
-              <Volume2 className="size-4" />
-            )}
-          </button>
+        <div className="mt-1 flex items-center text-secondary" dir="ltr">
           <button
             type="button"
             onClick={onTranslate}
@@ -145,65 +118,28 @@ function MateLoadingBubble() {
           className="size-4 shrink-0 origin-center animate-spin"
           aria-hidden="true"
         />
-        <span>مهارات يسجل رده</span>
+        <span>مهارات يكتب رده</span>
       </div>
     </article>
   );
 }
 
-function AudioPlayback({
+function RecordingPlayback({
   url,
-  label,
   transcript,
-  tone,
-  browserFallback = false,
 }: {
-  url: string | null;
-  label: string;
+  url: string;
   transcript: string;
-  tone: "correction" | "positive";
-  browserFallback?: boolean;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
-  const isPositive = tone === "positive";
-
-  function stopBrowserSpeech() {
-    if (!window.speechSynthesis) return;
-
-    window.speechSynthesis.cancel();
-    setPlaying(false);
-  }
-
-  function playBrowserSpeech() {
-    if (!window.speechSynthesis) return;
-
-    const utterance = new SpeechSynthesisUtterance(transcript);
-    utterance.lang = "en-US";
-    utterance.onend = () => setPlaying(false);
-    utterance.onerror = () => setPlaying(false);
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
-    setPlaying(true);
-  }
 
   function togglePlayback() {
-    if (url) {
-      const audio = audioRef.current;
-      if (!audio) return;
+    const audio = audioRef.current;
+    if (!audio) return;
 
-      if (audio.paused) {
-        void audio.play().catch(() => setPlaying(false));
-      } else {
-        audio.pause();
-      }
-      return;
-    }
-
-    if (!browserFallback) return;
-
-    if (playing) stopBrowserSpeech();
-    else playBrowserSpeech();
+    if (audio.paused) void audio.play().catch(() => setPlaying(false));
+    else audio.pause();
   }
 
   return (
@@ -211,45 +147,30 @@ function AudioPlayback({
       className="flex items-center gap-3 rounded-2xl bg-[#272a2d] px-3 py-3 text-foreground"
       dir="ltr"
     >
-      {url ? (
-        <audio
-          ref={audioRef}
-          src={url}
-          preload="auto"
-          className="sr-only"
-          onPlay={() => setPlaying(true)}
-          onPause={() => setPlaying(false)}
-          onEnded={() => setPlaying(false)}
-          onError={() => setPlaying(false)}
-        />
-      ) : null}
+      <audio
+        ref={audioRef}
+        src={url}
+        preload="auto"
+        className="sr-only"
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+        onError={() => setPlaying(false)}
+      />
       <button
         type="button"
         onClick={togglePlayback}
-        disabled={!url && !browserFallback}
-        className="grid size-9 shrink-0 place-items-center rounded-full bg-[#363a3e] hover:bg-[#42474c] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-50"
-        aria-label={label}
+        className="grid size-9 shrink-0 place-items-center rounded-full bg-[#363a3e] hover:bg-[#42474c] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        aria-label="استمع لتسجيلك"
       >
         {playing ? (
-          <Pause
-            className={
-              isPositive ? "size-4 text-[#8fce9f]" : "size-4 text-[#ef9a9a]"
-            }
-          />
+          <Pause className="size-4 text-[#ef9a9a]" />
         ) : (
-          <Play
-            className={
-              isPositive
-                ? "size-4 fill-current text-[#8fce9f]"
-                : "size-4 fill-current text-[#ef9a9a]"
-            }
-          />
+          <Play className="size-4 fill-current text-[#ef9a9a]" />
         )}
       </button>
       <p
-        className={`min-w-0 flex-1 text-left text-sm leading-6 whitespace-pre-wrap ${
-          isPositive ? "text-[#8fce9f]" : "text-[#ef9a9a]"
-        }`}
+        className="min-w-0 flex-1 text-left text-sm leading-6 whitespace-pre-wrap text-[#ef9a9a]"
         lang="en"
       >
         {transcript}
@@ -373,25 +294,22 @@ function CoachSheet({
         <div>
           <p className="mb-1 text-xs text-[#ef9a9a]">أنت قلت</p>
           <div className="mt-2">
-            <AudioPlayback
+            <RecordingPlayback
               key={coach.audioUrl}
               url={coach.audioUrl}
-              label="استمع لتسجيلك"
               transcript={coach.currentTranscript}
-              tone="correction"
             />
           </div>
         </div>
         <div>
           <p className="mb-1 text-xs text-[#8fce9f]">صياغة مقترحة</p>
-          <AudioPlayback
-            key={coach.suggestedSpokenVersionAudioUrl ?? "browser-speech"}
-            url={coach.suggestedSpokenVersionAudioUrl}
-            label="استمع للصياغة المقترحة"
-            transcript={coach.retryContext.suggestedSpokenVersion}
-            tone="positive"
-            browserFallback
-          />
+          <p
+            className="rounded-2xl bg-[#272a2d] px-4 py-3 text-left text-sm leading-6 whitespace-pre-wrap text-[#8fce9f]"
+            dir="ltr"
+            lang="en"
+          >
+            {coach.retryContext.suggestedSpokenVersion}
+          </p>
         </div>
       </div>
       {phase === "correcting" ? (
@@ -480,9 +398,6 @@ export default function Home() {
   const [coach, setCoach] = useState<CoachState | null>(null);
   const [error, setError] = useState("");
   const [translatedMessages, setTranslatedMessages] = useState<string[]>([]);
-  const [loadingAudioMessageId, setLoadingAudioMessageId] = useState<
-    string | null
-  >(null);
   const [showEndConfirmation, setShowEndConfirmation] = useState(false);
   const conversationId = useRef<string | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
@@ -491,7 +406,6 @@ export default function Home() {
   const recordingStartedAt = useRef(0);
   const attemptKind = useRef<AttemptKind>("initial");
   const coachAudioUrl = useRef<string | null>(null);
-  const coachSuggestedSpokenVersionAudioUrl = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const isMateThinking = phase === "mate-thinking";
 
@@ -499,11 +413,6 @@ export default function Home() {
     if (coachAudioUrl.current) {
       URL.revokeObjectURL(coachAudioUrl.current);
       coachAudioUrl.current = null;
-    }
-
-    if (coachSuggestedSpokenVersionAudioUrl.current) {
-      URL.revokeObjectURL(coachSuggestedSpokenVersionAudioUrl.current);
-      coachSuggestedSpokenVersionAudioUrl.current = null;
     }
   }
 
@@ -515,13 +424,6 @@ export default function Home() {
   function keepCoachAudio(url: string) {
     if (coachAudioUrl.current) URL.revokeObjectURL(coachAudioUrl.current);
     coachAudioUrl.current = url;
-  }
-
-  function keepCoachSuggestedSpokenVersionAudio(url: string | null) {
-    if (coachSuggestedSpokenVersionAudioUrl.current) {
-      URL.revokeObjectURL(coachSuggestedSpokenVersionAudioUrl.current);
-    }
-    coachSuggestedSpokenVersionAudioUrl.current = url;
   }
 
   function stopMediaStream() {
@@ -578,7 +480,6 @@ export default function Home() {
       cancelled = true;
       unsubscribe();
       stopMediaStream();
-      stopTtsAudio();
       releaseCoachAudio();
     };
   }, []);
@@ -612,8 +513,6 @@ export default function Home() {
 
     setPhase("joining");
     setError("");
-    unlockTtsAudio();
-
     try {
       const user =
         firebaseAuth.currentUser ??
@@ -637,26 +536,7 @@ export default function Home() {
       sessionStorage.setItem(CONVERSATION_ID_KEY, conversation.conversationId);
       setMessages([conversation.message]);
       clearCoach();
-
-      if (!conversation.audioBase64) {
-        setError("ردّ مهارات جاهز، لكن الصوت غير متاح مؤقتًا.");
-        setPhase("idle");
-        return;
-      }
-
-      setPhase("mate-speaking");
-      const url = base64ToAudioUrl(conversation.audioBase64);
-      void playTtsAudio(url, {
-        onPlay: () => undefined,
-        onEnded: () => {
-          URL.revokeObjectURL(url);
-          setPhase("idle");
-        },
-      }).catch(() => {
-        URL.revokeObjectURL(url);
-        setError("تعذر تشغيل صوت مهارات. يمكنك قراءة الرسالة والبدء.");
-        setPhase("idle");
-      });
+      setPhase("idle");
     } catch (joinError) {
       console.error("Failed to join conversation", joinError);
       conversationId.current = null;
@@ -765,13 +645,6 @@ export default function Home() {
           } else {
             keepRecordingUrl = true;
             keepCoachAudio(recordingUrl);
-            const suggestedSpokenVersionAudioUrl =
-              event.suggestedSpokenVersionAudioBase64
-                ? base64ToAudioUrl(event.suggestedSpokenVersionAudioBase64)
-                : null;
-            keepCoachSuggestedSpokenVersionAudio(
-              suggestedSpokenVersionAudioUrl,
-            );
             setCoach({
               retryContext: {
                 transcript: event.transcript,
@@ -779,7 +652,6 @@ export default function Home() {
               },
               currentTranscript: event.transcript,
               audioUrl: recordingUrl,
-              suggestedSpokenVersionAudioUrl,
             });
             attemptKind.current = "retry";
             setPhase("correcting");
@@ -809,25 +681,7 @@ export default function Home() {
 
         if (event.type === "mateMessage") {
           setMessages((current) => [...current, event.message]);
-
-          if (event.audioBase64) {
-            setPhase("mate-speaking");
-            const url = base64ToAudioUrl(event.audioBase64);
-            void playTtsAudio(url, {
-              onPlay: () => undefined,
-              onEnded: () => {
-                URL.revokeObjectURL(url);
-                setPhase("idle");
-              },
-            }).catch(() => {
-              URL.revokeObjectURL(url);
-              setError("تعذر تشغيل صوت مهارات. يمكنك قراءة الرسالة والرد.");
-              setPhase("idle");
-            });
-          } else {
-            setError("ردّ مهارات جاهز، لكن الصوت غير متاح مؤقتًا.");
-            setPhase("idle");
-          }
+          setPhase("idle");
         }
 
         if (event.type === "error") {
@@ -884,44 +738,8 @@ export default function Home() {
     }
   }
 
-  async function playMessage(message: Message) {
-    if (message.sender !== "mate" || !conversationId.current) return;
-
-    setLoadingAudioMessageId(message.id);
-    try {
-      unlockTtsAudio();
-      const user = firebaseAuth.currentUser;
-      if (!user) throw new Error("المستخدم غير متاح.");
-      const token = await user.getIdToken();
-      const response = await fetch(
-        `/api/conversations/${conversationId.current}/messages/${message.id}/speech`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        throw new Error(body?.error ?? "تعذر تشغيل الصوت. حاول مرة أخرى.");
-      }
-      const url = URL.createObjectURL(await response.blob());
-      await playTtsAudio(url, {
-        onPlay: () => undefined,
-        onEnded: () => URL.revokeObjectURL(url),
-      });
-    } catch (playError) {
-      setError(
-        playError instanceof Error
-          ? playError.message
-          : "تعذر تشغيل الصوت. حاول مرة أخرى.",
-      );
-    } finally {
-      setLoadingAudioMessageId(null);
-    }
-  }
-
   function finishConversation() {
     setShowEndConfirmation(false);
-    stopTtsAudio();
     deleteRecording();
     stopMediaStream();
     clearCoach();
@@ -930,7 +748,6 @@ export default function Home() {
     attemptKind.current = "initial";
     setMessages([]);
     setTranslatedMessages([]);
-    setLoadingAudioMessageId(null);
     setError("");
     setPhase("ready");
   }
@@ -940,9 +757,7 @@ export default function Home() {
     (phase === "correcting" || phase === "recording" || phase === "coaching");
   const isCoachProcessing = phase === "coaching";
   const isResponseProcessing =
-    phase === "accepted" ||
-    phase === "mate-thinking" ||
-    phase === "mate-speaking";
+    phase === "accepted" || phase === "mate-thinking";
 
   return (
     <main className="flex h-svh min-h-0 flex-col overflow-hidden bg-background text-foreground">
@@ -956,8 +771,6 @@ export default function Home() {
             key={message.id}
             message={message}
             translated={translatedMessages.includes(message.id)}
-            loadingAudio={loadingAudioMessageId === message.id}
-            onPlay={() => void playMessage(message)}
             onTranslate={() =>
               setTranslatedMessages((current) =>
                 current.includes(message.id)

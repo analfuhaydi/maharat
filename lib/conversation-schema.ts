@@ -63,7 +63,6 @@ export const MessagesResponseSchema = z.object({
 export const ConversationCreatedResponseSchema = z.object({
   conversationId: z.string().min(1),
   message: MateMessageSchema,
-  audioBase64: z.string().min(1).nullable(),
 });
 
 export const RecordingAttemptKindSchema = z.enum(["initial", "retry"]);
@@ -85,7 +84,6 @@ export const ConversationStreamEventSchema = z.union([
     accepted: z.literal(false),
     transcript: z.string().min(1),
     suggestedSpokenVersion: z.string().min(1),
-    suggestedSpokenVersionAudioBase64: z.string().min(1).nullable(),
   }),
   z.object({
     type: z.literal("coachRetryRejected"),
@@ -99,7 +97,6 @@ export const ConversationStreamEventSchema = z.union([
   z.object({
     type: z.literal("mateMessage"),
     message: MateMessageSchema,
-    audioBase64: z.string().min(1).nullable(),
   }),
   z.object({ type: z.literal("error"), message: z.string().min(1) }),
 ]);

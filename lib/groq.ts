@@ -18,11 +18,8 @@ import { PROFESSIONAL_ENGLISH_COACHING_GUIDELINES } from "@/lib/coach-system";
 const GROQ_MODELS = {
   chat: "openai/gpt-oss-20b",
   speechToText: "whisper-large-v3",
-  textToSpeech: "canopylabs/orpheus-v1-english",
 } as const;
 
-const ENGLISH_VOICE = "autumn";
-const SpeechInputSchema = z.string().trim().min(1).max(1000);
 const STT_PROMPT =
   "Transcribe the English speech exactly as spoken. Preserve filler words, repetitions, incomplete sentences, hesitations, and grammatical mistakes. Do not correct, rewrite, summarize, or complete the speaker's sentences.";
 
@@ -55,10 +52,9 @@ Conversation rules:
 - Do not use lists, headings, markdown, emojis, or stage directions.
 - Do not invent facts about the learner or pretend to have personal experiences.
 
-Speech rules:
-- Write for text-to-speech, not for reading.
-- Keep the spoken English under three hundred characters.
-- Write numbers as English words and avoid digits, abbreviations, and symbols.
+Response rules:
+- Write a concise, natural response that is easy for the learner to read.
+- Keep the English response under three hundred characters.
 
 Return only JSON with the English text Maharat Mate should speak and a faithful Modern Standard Arabic translation.
 `.trim();
@@ -215,20 +211,4 @@ export async function generateCoachResponse(input: {
   });
 
   return parseCoachCompletion(completion);
-}
-
-export async function generateMateSpeech(text: string) {
-  return generateSpeech(MateResponseSchema.shape.text.parse(text));
-}
-
-export async function generateSpeech(text: string) {
-  const validatedText = SpeechInputSchema.parse(text);
-  const response = await getGroqClient().audio.speech.create({
-    model: GROQ_MODELS.textToSpeech,
-    voice: ENGLISH_VOICE,
-    input: validatedText,
-    response_format: "wav",
-  });
-
-  return response.arrayBuffer();
 }
