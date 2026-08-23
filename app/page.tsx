@@ -87,7 +87,7 @@ function MessageBubble({
             aria-label="تشغيل الرسالة"
           >
             {loadingAudio ? (
-              <LoaderCircle className="size-4 animate-spin" />
+              <LoaderCircle className="size-4 shrink-0 origin-center animate-spin" />
             ) : (
               <Volume2 className="size-4" />
             )}
@@ -130,8 +130,11 @@ function MateLoadingBubble() {
         role="status"
         aria-live="polite"
       >
-        <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
-        <span>مهارات يفكر</span>
+        <LoaderCircle
+          className="size-4 shrink-0 origin-center animate-spin"
+          aria-hidden="true"
+        />
+        <span>مهارات يسجل رده</span>
       </div>
     </article>
   );
@@ -283,7 +286,10 @@ function ReviewStatus() {
       role="status"
       aria-live="polite"
     >
-      <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+      <LoaderCircle
+        className="size-4 shrink-0 origin-center animate-spin"
+        aria-hidden="true"
+      />
       <span>نراجع ردك</span>
     </div>
   );
@@ -358,7 +364,7 @@ function CoachSheet({
           onClick={onRetry}
           className="mt-6 flex min-h-12 w-full touch-manipulation items-center justify-center rounded-full bg-brand px-5 font-medium text-[#332d3b] transition-colors hover:bg-[#ffc954] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
         >
-          سجّل محاولة أخرى
+          سجل ردك
         </button>
       ) : null}
 
@@ -979,8 +985,8 @@ export default function Home() {
                 disabled
                 className="flex min-h-14 w-full cursor-wait items-center justify-center gap-2 rounded-xl bg-brand px-6 text-lg font-semibold text-[#332d3b] opacity-70"
               >
-                <LoaderCircle className="size-5 animate-spin" />
-                جاري البدء
+                <LoaderCircle className="size-5 shrink-0 origin-center animate-spin" />
+                نجهز المحادثة
               </button>
             ) : null}
 
@@ -990,8 +996,8 @@ export default function Home() {
                 disabled
                 className="flex min-h-14 w-full cursor-wait items-center justify-center gap-2 rounded-xl bg-[#191b1d] px-6 text-lg font-semibold opacity-70"
               >
-                <LoaderCircle className="size-5 animate-spin" />
-                جاري استعادة المحادثة
+                <LoaderCircle className="size-5 shrink-0 origin-center animate-spin" />
+                نستكمل المحادثة
               </button>
             ) : null}
 
@@ -1009,7 +1015,7 @@ export default function Home() {
                   onClick={() => void startRecording("initial")}
                   className="flex min-h-14 min-w-0 flex-[0.7] touch-manipulation items-center justify-center rounded-xl bg-brand px-5 font-semibold text-[#332d3b] transition-colors hover:bg-[#ffc954] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
                 >
-                  سجّل ردك
+                  سجل ردك
                 </button>
               </div>
             ) : null}
@@ -1021,12 +1027,29 @@ export default function Home() {
               />
             ) : null}
 
-            {isCoachProcessing || isResponseProcessing ? (
+            {isCoachProcessing ? (
+              <div className="flex" dir="ltr">
+                <button
+                  type="button"
+                  disabled
+                  dir="rtl"
+                  className="flex min-h-14 w-full cursor-wait items-center justify-center gap-2 rounded-xl bg-[#272a2d] px-5 font-semibold text-brand"
+                >
+                  <LoaderCircle
+                    className="size-5 shrink-0 origin-center animate-spin"
+                    aria-hidden="true"
+                  />
+                  <span>نراجع ردك</span>
+                </button>
+              </div>
+            ) : null}
+
+            {isResponseProcessing ? (
               <div className="flex gap-2" dir="ltr">
                 <button
                   type="button"
                   disabled
-                  className="flex min-h-14 min-w-0 flex-[0.3] cursor-wait items-center justify-center rounded-xl bg-[#7d3439] px-3 text-sm font-medium text-[#fff4f0] opacity-50"
+                  className="flex min-h-14 min-w-0 flex-[0.3] cursor-wait items-center justify-center rounded-xl bg-[#7d3439] px-3 text-sm font-medium text-[#fff4f0]"
                 >
                   إنهاء
                 </button>
@@ -1034,23 +1057,9 @@ export default function Home() {
                   type="button"
                   disabled
                   dir="rtl"
-                  className={
-                    isCoachProcessing
-                      ? "flex min-h-14 min-w-0 flex-[0.7] cursor-wait items-center justify-center gap-2 rounded-xl bg-[#191b1d] px-5 font-semibold text-brand opacity-70"
-                      : "flex min-h-14 min-w-0 flex-[0.7] cursor-wait items-center justify-center gap-2 rounded-xl bg-brand px-5 font-semibold text-[#332d3b] opacity-70"
-                  }
+                  className="flex min-h-14 min-w-0 flex-[0.7] cursor-wait items-center justify-center gap-2 rounded-xl bg-brand px-5 font-semibold text-[#332d3b]"
                 >
-                  {isCoachProcessing ? (
-                    <>
-                      <LoaderCircle
-                        className="size-5 animate-spin"
-                        aria-hidden="true"
-                      />
-                      <span>نراجع ردك</span>
-                    </>
-                  ) : (
-                    "سجّل ردك"
-                  )}
+                  سجل ردك
                 </button>
               </div>
             ) : null}
