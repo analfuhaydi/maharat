@@ -9,6 +9,7 @@ import {
   ConversationCreatedResponseSchema,
   ConversationStreamEventSchema,
   MessagesResponseSchema,
+  type TimeOfDay,
   type Message,
   type RetryContext,
 } from "@/lib/conversation-schema";
@@ -29,10 +30,20 @@ type Phase =
   | "mate-thinking"
   | "mate-speaking";
 type AttemptKind = "initial" | "retry";
-type CoachState = RetryContext & {
+type CoachState = {
+  retryContext: RetryContext;
+  currentTranscript: string;
   audioUrl: string;
-  professionalResponseAudioUrl: string | null;
+  suggestedSpokenVersionAudioUrl: string | null;
 };
+
+function getLocalTimeOfDay(): TimeOfDay {
+  const hour = new Date().getHours();
+
+  if (hour < 12) return "morning";
+  if (hour < 18) return "afternoon";
+  return "evening";
+}
 
 function base64ToAudioUrl(audioBase64: string) {
   const bytes = Uint8Array.from(atob(audioBase64), (character) =>
@@ -145,38 +156,78 @@ function AudioPlayback({
   label,
   transcript,
   tone,
+  browserFallback = false,
 }: {
-  url: string;
+  url: string | null;
   label: string;
   transcript: string;
   tone: "correction" | "positive";
+  browserFallback?: boolean;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const isPositive = tone === "positive";
+
+  function stopBrowserSpeech() {
+    if (!window.speechSynthesis) return;
+
+    window.speechSynthesis.cancel();
+    setPlaying(false);
+  }
+
+  function playBrowserSpeech() {
+    if (!window.speechSynthesis) return;
+
+    const utterance = new SpeechSynthesisUtterance(transcript);
+    utterance.lang = "en-US";
+    utterance.onend = () => setPlaying(false);
+    utterance.onerror = () => setPlaying(false);
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+    setPlaying(true);
+  }
+
+  function togglePlayback() {
+    if (url) {
+      const audio = audioRef.current;
+      if (!audio) return;
+
+      if (audio.paused) {
+        void audio.play().catch(() => setPlaying(false));
+      } else {
+        audio.pause();
+      }
+      return;
+    }
+
+    if (!browserFallback) return;
+
+    if (playing) stopBrowserSpeech();
+    else playBrowserSpeech();
+  }
 
   return (
     <div
       className="flex items-center gap-3 rounded-2xl bg-[#272a2d] px-3 py-3 text-foreground"
       dir="ltr"
     >
-      <audio
-        ref={audioRef}
-        src={url}
-        className="sr-only"
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
-      />
+      {url ? (
+        <audio
+          ref={audioRef}
+          src={url}
+          preload="auto"
+          className="sr-only"
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onEnded={() => setPlaying(false)}
+          onError={() => setPlaying(false)}
+        />
+      ) : null}
       <button
         type="button"
-        onClick={() => {
-          const audio = audioRef.current;
-          if (!audio) return;
-          if (audio.paused) void audio.play();
-          else audio.pause();
-        }}
-        className="grid size-9 shrink-0 place-items-center rounded-full bg-[#363a3e] hover:bg-[#42474c] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+        onClick={togglePlayback}
+        disabled={!url && !browserFallback}
+        className="grid size-9 shrink-0 place-items-center rounded-full bg-[#363a3e] hover:bg-[#42474c] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-50"
         aria-label={label}
       >
         {playing ? (
@@ -326,36 +377,21 @@ function CoachSheet({
               key={coach.audioUrl}
               url={coach.audioUrl}
               label="استمع لتسجيلك"
-              transcript={coach.transcript}
+              transcript={coach.currentTranscript}
               tone="correction"
             />
           </div>
         </div>
         <div>
-          <p className="mb-1 text-xs text-[#8fce9f]">صياغة مهنية أفضل</p>
-          {coach.professionalResponseAudioUrl ? (
-            <AudioPlayback
-              key={coach.professionalResponseAudioUrl}
-              url={coach.professionalResponseAudioUrl}
-              label="استمع للصياغة المهنية الأفضل"
-              transcript={coach.professionalResponse}
-              tone="positive"
-            />
-          ) : (
-            <p
-              className="rounded-2xl bg-[#272a2d] px-3 py-3 whitespace-pre-wrap"
-              dir="ltr"
-              lang="en"
-            >
-              {coach.professionalResponse}
-            </p>
-          )}
-        </div>
-        <div>
-          <p className="mb-1 text-xs text-secondary">درس سريع</p>
-          <p className="whitespace-pre-wrap" dir="rtl" lang="ar">
-            {coach.lesson}
-          </p>
+          <p className="mb-1 text-xs text-[#8fce9f]">صياغة مقترحة</p>
+          <AudioPlayback
+            key={coach.suggestedSpokenVersionAudioUrl ?? "browser-speech"}
+            url={coach.suggestedSpokenVersionAudioUrl}
+            label="استمع للصياغة المقترحة"
+            transcript={coach.retryContext.suggestedSpokenVersion}
+            tone="positive"
+            browserFallback
+          />
         </div>
       </div>
       {phase === "correcting" ? (
@@ -455,7 +491,7 @@ export default function Home() {
   const recordingStartedAt = useRef(0);
   const attemptKind = useRef<AttemptKind>("initial");
   const coachAudioUrl = useRef<string | null>(null);
-  const coachProfessionalResponseAudioUrl = useRef<string | null>(null);
+  const coachSuggestedSpokenVersionAudioUrl = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const isMateThinking = phase === "mate-thinking";
 
@@ -465,9 +501,9 @@ export default function Home() {
       coachAudioUrl.current = null;
     }
 
-    if (coachProfessionalResponseAudioUrl.current) {
-      URL.revokeObjectURL(coachProfessionalResponseAudioUrl.current);
-      coachProfessionalResponseAudioUrl.current = null;
+    if (coachSuggestedSpokenVersionAudioUrl.current) {
+      URL.revokeObjectURL(coachSuggestedSpokenVersionAudioUrl.current);
+      coachSuggestedSpokenVersionAudioUrl.current = null;
     }
   }
 
@@ -481,11 +517,11 @@ export default function Home() {
     coachAudioUrl.current = url;
   }
 
-  function keepCoachProfessionalResponseAudio(url: string | null) {
-    if (coachProfessionalResponseAudioUrl.current) {
-      URL.revokeObjectURL(coachProfessionalResponseAudioUrl.current);
+  function keepCoachSuggestedSpokenVersionAudio(url: string | null) {
+    if (coachSuggestedSpokenVersionAudioUrl.current) {
+      URL.revokeObjectURL(coachSuggestedSpokenVersionAudioUrl.current);
     }
-    coachProfessionalResponseAudioUrl.current = url;
+    coachSuggestedSpokenVersionAudioUrl.current = url;
   }
 
   function stopMediaStream() {
@@ -585,7 +621,11 @@ export default function Home() {
       const token = await user.getIdToken();
       const response = await fetch("/api/conversations", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ timeOfDay: getLocalTimeOfDay() }),
       });
 
       if (!response.ok) throw new Error("Failed to create conversation.");
@@ -691,14 +731,7 @@ export default function Home() {
     form.set("attemptKind", kind);
 
     if (kind === "retry" && coach) {
-      form.set(
-        "retryContext",
-        JSON.stringify({
-          transcript: coach.transcript,
-          professionalResponse: coach.professionalResponse,
-          lesson: coach.lesson,
-        } satisfies RetryContext),
-      );
+      form.set("retryContext", JSON.stringify(coach.retryContext));
     }
 
     const recordingUrl = URL.createObjectURL(blob);
@@ -732,17 +765,21 @@ export default function Home() {
           } else {
             keepRecordingUrl = true;
             keepCoachAudio(recordingUrl);
-            const professionalResponseAudioUrl =
-              event.professionalResponseAudioBase64
-                ? base64ToAudioUrl(event.professionalResponseAudioBase64)
+            const suggestedSpokenVersionAudioUrl =
+              event.suggestedSpokenVersionAudioBase64
+                ? base64ToAudioUrl(event.suggestedSpokenVersionAudioBase64)
                 : null;
-            keepCoachProfessionalResponseAudio(professionalResponseAudioUrl);
+            keepCoachSuggestedSpokenVersionAudio(
+              suggestedSpokenVersionAudioUrl,
+            );
             setCoach({
-              transcript: event.transcript,
-              professionalResponse: event.professionalResponse,
-              lesson: event.lesson,
+              retryContext: {
+                transcript: event.transcript,
+                suggestedSpokenVersion: event.suggestedSpokenVersion,
+              },
+              currentTranscript: event.transcript,
               audioUrl: recordingUrl,
-              professionalResponseAudioUrl,
+              suggestedSpokenVersionAudioUrl,
             });
             attemptKind.current = "retry";
             setPhase("correcting");
@@ -756,7 +793,7 @@ export default function Home() {
             current
               ? {
                   ...current,
-                  transcript: event.transcript,
+                  currentTranscript: event.transcript,
                   audioUrl: recordingUrl,
                 }
               : current,

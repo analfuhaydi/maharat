@@ -97,7 +97,11 @@ async function authenticateAnonymously() {
 async function createConversation(idToken) {
   const response = await fetch(`${baseUrl}/api/conversations`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${idToken}` },
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ timeOfDay: "afternoon" }),
   });
   if (!response.ok) {
     throw new Error(`Conversation creation failed: ${await response.text()}`);
@@ -107,8 +111,8 @@ async function createConversation(idToken) {
 
 async function generateAudio(text) {
   const response = await groq.audio.speech.create({
-    model: "canopylabs/orpheus-arabic-saudi",
-    voice: "noura",
+    model: "canopylabs/orpheus-v1-english",
+    voice: "autumn",
     input: text,
     response_format: "wav",
   });
@@ -228,8 +232,16 @@ async function run() {
     const eventTypes = firstEvents.map((event) => event.type).join(", ");
     throw new Error(`Weak initial answer was accepted. Events: ${eventTypes}`);
   }
-  assert(firstFeedback.professionalResponse, "English correction was missing.");
-  assert(firstFeedback.lesson, "Arabic Coach lesson was missing.");
+  assert(
+    firstFeedback.suggestedSpokenVersion,
+    "Suggested spoken version was missing.",
+  );
+  assert(
+    typeof firstFeedback.suggestedSpokenVersionAudioBase64 === "string" &&
+      firstFeedback.suggestedSpokenVersionAudioBase64.length > 100,
+    "Suggested spoken version audio was missing.",
+  );
+  assert(!("lesson" in firstFeedback), "Coach lesson should be removed.");
   assert(
     firstEvents.every((event) => event.type !== "mateMessage"),
     "Mate replied to a rejected initial answer.",
@@ -243,8 +255,7 @@ async function run() {
 
   const retryContext = {
     transcript: firstFeedback.transcript,
-    professionalResponse: firstFeedback.professionalResponse,
-    lesson: firstFeedback.lesson,
+    suggestedSpokenVersion: firstFeedback.suggestedSpokenVersion,
   };
   const retryEvents = await submitRecording(
     auth.idToken,
@@ -289,7 +300,7 @@ async function run() {
     "Mate response audio was missing.",
   );
   assert(
-    !JSON.stringify(mateEvent).includes("professionalResponse"),
+    !JSON.stringify(mateEvent).includes("suggestedSpokenVersion"),
     "Coach feedback leaked into Mate output.",
   );
 

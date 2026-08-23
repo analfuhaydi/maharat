@@ -176,7 +176,6 @@ export async function POST(request: Request, context: RouteContext) {
           throw new Error("Empty transcription.");
 
         const coach = await generateCoachResponse({
-          acceptedConversationHistory: toConversationHistory(messages),
           pendingTranscript: whisperResponse.text,
           attemptKind: timing.data.attemptKind,
           retryContext,
@@ -184,19 +183,19 @@ export async function POST(request: Request, context: RouteContext) {
 
         if (!coach.accepted) {
           if (timing.data.attemptKind === "initial") {
-            if (!coach.professionalResponse || !coach.lesson) {
-              throw new Error("Initial rejection is missing feedback.");
+            if (!coach.suggestedSpokenVersion) {
+              throw new Error("Initial rejection is missing a suggestion.");
             }
 
-            let professionalResponseAudioBase64: string | null = null;
+            let suggestedSpokenVersionAudioBase64: string | null = null;
 
             try {
-              professionalResponseAudioBase64 = Buffer.from(
-                await generateSpeech(coach.professionalResponse),
+              suggestedSpokenVersionAudioBase64 = Buffer.from(
+                await generateSpeech(coach.suggestedSpokenVersion),
               ).toString("base64");
             } catch (error) {
               console.warn(
-                "Coach correction audio is temporarily unavailable",
+                "Coach suggested version audio is temporarily unavailable",
                 error,
               );
             }
@@ -205,9 +204,8 @@ export async function POST(request: Request, context: RouteContext) {
               type: "coachFeedback",
               accepted: false,
               transcript: whisperResponse.text,
-              professionalResponse: coach.professionalResponse,
-              lesson: coach.lesson,
-              professionalResponseAudioBase64,
+              suggestedSpokenVersion: coach.suggestedSpokenVersion,
+              suggestedSpokenVersionAudioBase64,
             });
           } else {
             send({

@@ -2,6 +2,7 @@ import { Timestamp } from "firebase-admin/firestore";
 
 import {
   ConversationCreatedResponseSchema,
+  ConversationStartRequestSchema,
   type MateMessage,
 } from "@/lib/conversation-schema";
 import {
@@ -21,7 +22,18 @@ export async function POST(request: Request) {
   }
 
   try {
-    const mate = await generateMateResponse([]);
+    const startRequest = ConversationStartRequestSchema.safeParse(
+      await request.json().catch(() => ({})),
+    );
+
+    if (!startRequest.success) {
+      return Response.json(
+        { error: "بيانات بدء المحادثة غير صالحة." },
+        { status: 400 },
+      );
+    }
+
+    const mate = await generateMateResponse([], startRequest.data.timeOfDay);
     let audioBase64: string | null = null;
 
     try {

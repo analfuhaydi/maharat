@@ -14,11 +14,10 @@ export const MateResponseSchema = z.object({
 export const CoachOutputSchema = z
   .object({
     accepted: z.boolean(),
-    professionalResponse: z.string().trim().min(1).max(1000).nullable(),
-    lesson: z.string().trim().min(1).max(500).nullable(),
+    suggestedSpokenVersion: z.string().trim().min(1).max(1000).nullable(),
   })
   .superRefine((value, context) => {
-    if (value.accepted && (value.professionalResponse || value.lesson)) {
+    if (value.accepted && value.suggestedSpokenVersion) {
       context.addIssue({
         code: "custom",
         message: "Accepted coach responses cannot contain feedback.",
@@ -28,8 +27,11 @@ export const CoachOutputSchema = z
 
 export const RetryContextSchema = z.object({
   transcript: z.string().trim().min(1),
-  professionalResponse: z.string().trim().min(1),
-  lesson: z.string().trim().min(1),
+  suggestedSpokenVersion: z.string().trim().min(1),
+});
+
+export const ConversationStartRequestSchema = z.object({
+  timeOfDay: z.enum(["morning", "afternoon", "evening"]).optional(),
 });
 
 export const MateMessageSchema = z.object({
@@ -82,9 +84,8 @@ export const ConversationStreamEventSchema = z.union([
     type: z.literal("coachFeedback"),
     accepted: z.literal(false),
     transcript: z.string().min(1),
-    professionalResponse: z.string().min(1),
-    lesson: z.string().min(1),
-    professionalResponseAudioBase64: z.string().min(1).nullable(),
+    suggestedSpokenVersion: z.string().min(1),
+    suggestedSpokenVersionAudioBase64: z.string().min(1).nullable(),
   }),
   z.object({
     type: z.literal("coachRetryRejected"),
@@ -107,6 +108,9 @@ export type WhisperResponse = z.infer<typeof WhisperResponseSchema>;
 export type MateResponse = z.infer<typeof MateResponseSchema>;
 export type CoachOutput = z.infer<typeof CoachOutputSchema>;
 export type RetryContext = z.infer<typeof RetryContextSchema>;
+export type TimeOfDay = z.infer<
+  typeof ConversationStartRequestSchema
+>["timeOfDay"];
 export type MateMessage = z.infer<typeof MateMessageSchema>;
 export type UserMessage = z.infer<typeof UserMessageSchema>;
 export type Message = z.infer<typeof MessageSchema>;

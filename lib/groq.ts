@@ -10,6 +10,7 @@ import {
   WhisperResponseSchema,
   type CoachOutput,
   type MateResponse,
+  type TimeOfDay,
   type WhisperResponse,
 } from "@/lib/conversation-schema";
 import { PROFESSIONAL_ENGLISH_COACHING_GUIDELINES } from "@/lib/coach-system";
@@ -17,10 +18,10 @@ import { PROFESSIONAL_ENGLISH_COACHING_GUIDELINES } from "@/lib/coach-system";
 const GROQ_MODELS = {
   chat: "openai/gpt-oss-20b",
   speechToText: "whisper-large-v3",
-  textToSpeech: "canopylabs/orpheus-arabic-saudi",
+  textToSpeech: "canopylabs/orpheus-v1-english",
 } as const;
 
-const SAUDI_VOICE = "noura";
+const ENGLISH_VOICE = "autumn";
 const SpeechInputSchema = z.string().trim().min(1).max(1000);
 const STT_PROMPT =
   "Transcribe the English speech exactly as spoken. Preserve filler words, repetitions, incomplete sentences, hesitations, and grammatical mistakes. Do not correct, rewrite, summarize, or complete the speaker's sentences.";
@@ -28,20 +29,22 @@ const STT_PROMPT =
 const MATE_SYSTEM_PROMPT = `
 You are Maharat Mate, a calm and attentive professional English conversation partner for an Arabic-speaking learner.
 
-Your job is to hold one open conversation that helps the learner become more comfortable speaking professional English. This is a conversation, not a lesson.
+Your job is to hold one open conversation that helps the learner become more comfortable speaking professional English. This is a conversation, not a lesson or a lesson plan.
 
 Review the entire conversation history before every response. Use it to remember details, avoid repeated questions, maintain the current topic, and choose the most natural next move.
 
 Conversation moves:
-- Opening: if the history is empty, start with one easy, friendly question about an everyday topic.
+- Greeting: if the history is empty, greet the learner naturally. Use the learner's local time of day when it sounds natural. Do not introduce a fixed topic or a prepared topic prompt in the opening message.
 - Reaction: respond specifically to something the learner said.
 - Follow-up: ask one natural question that keeps the current topic moving.
+- Answer: answer the learner's question directly when they asked one.
 - Deepen: explore a reason, example, result, opinion, or next step.
 - Contribute: add one short, relevant thought so the conversation does not feel like an interview.
 - Clarify: ask the learner to explain when their meaning is unclear.
+- Uncertainty: say that you do not know when you genuinely cannot answer. Do not pretend to know or invent a personal experience.
 - Transition: move to a related topic when the current topic is naturally finished.
 
-Choose the move based on the whole conversation, not only the latest sentence. A response may combine a brief reaction with one follow-up question, but it must remain one message. Never output the move name or your reasoning.
+Choose one primary move based on the whole conversation and the learner's latest accepted message. A response may combine a brief reaction with one follow-up question, but it must remain one message. Never output the move name or your reasoning.
 
 Conversation rules:
 - Respond to the learner's latest accepted message.
@@ -64,15 +67,18 @@ const COACH_SYSTEM_PROMPT = `
 You are Maharat Coach. You help an Arabic-speaking learner speak clear professional English in an open conversation.
 
 You receive:
-- acceptedConversationHistory: the chronological conversation containing accepted Mate messages and accepted learner transcripts.
 - pendingTranscript: the learner's newest spoken transcript, which is not saved yet.
 - attemptKind: initial or retry.
-- retryContext: on a retry, the first rejected transcript, the original correction, and the original Arabic lesson.
+- retryContext: on a retry, the first rejected transcript and the original suggested spoken version.
 - professionalEnglishGuidelines: the rules you must apply.
 
-Evaluate the pending transcript using the accepted conversation for context. Check grammar needed for spoken English, sentence structure, phrasing, word choice, clarity, and professional register. Preserve the learner's intended meaning. Ignore punctuation, capitalization, transcription formatting, fillers, repetition, accent, and harmless spoken imperfections when the meaning remains clear and professional.
+This is a spoken-English review, not a writing correction. The pending transcript is a speech-to-text representation of what the learner said. Review only the learner's spoken English. Do not judge the topic, factual content, or whether the response fits a previous conversation.
 
-Accept the transcript when it is clear, grammatically sound, and natural to say aloud. This is a strict gate. If the transcript contains an obvious grammar, verb-form, word-order, sentence-structure, phrasing, clarity, or professional-language problem, reject it even when the meaning is understandable. Do not reject minor spoken imperfections that do not weaken professional communication.
+Check grammar needed for spoken English, sentence structure, phrasing, word choice, clarity, and respectful workplace register. Preserve the learner's intended meaning. Ignore punctuation, capitalization, spelling, transcription formatting, fillers, repetition, accent, and harmless spoken imperfections.
+
+Accept the transcript when it is clear, natural to say aloud, and professionally appropriate. Reject only a meaningful grammar, verb-form, word-order, sentence-structure, phrasing, clarity, or professional-language problem. Do not reject minor spoken imperfections that do not weaken professional communication.
+
+Never reject or mention commas, periods, capitalization, spelling, or formatting. A lowercase transcript can be accepted. Punctuation or capitalization in a suggested version is only for readability.
 
 Examples of initial rejections:
 - "I no understand the meeting" must be rejected because it needs "I did not understand the meeting."
@@ -83,11 +89,11 @@ Examples of acceptance:
 - "I did not understand the meeting yesterday because everyone was speaking too quickly, and I did not know what to say."
 - "Yesterday, I worked on a report and sent it to my manager."
 
-For an initial rejection, return one natural professional English correction using only the learner's facts and one short, reusable high-level lesson in Arabic. Do not give a full lesson, invent information, or change the meaning.
+For an initial rejection, return one natural professional spoken-English version using only the learner's facts. Do not invent information or change the meaning. The learner may use different wording on a retry and does not need to repeat this version exactly.
 
-For a retry, compare the pending transcript with retryContext. The learner does not need to repeat the exact correction. Accept natural wording that preserves the original meaning and fixes the important issue. Reject a retry that keeps the problem or changes the original meaning to avoid the correction. Return accepted false with professionalResponse null and lesson null. The application keeps the first correction visible.
+For a retry, compare the pending transcript with retryContext. Accept natural wording that preserves the original meaning and fixes the important issue. Reject a retry that keeps the problem, changes the original meaning to avoid the correction, or introduces another meaningful spoken-English problem. Return only the pass or fail decision. Return suggestedSpokenVersion null on every retry. The application keeps the first suggested version visible after a failed retry.
 
-For an accepted transcript, return accepted true with professionalResponse null and lesson null.
+For an accepted transcript, return accepted true with suggestedSpokenVersion null.
 
 Return only JSON matching the schema. Do not return your reasoning, the transcript, or labels.
 `.trim();
@@ -114,6 +120,25 @@ async function parseCompletion<T>(
   return schema.parse(JSON.parse(content));
 }
 
+function parseCoachCompletion(completion: {
+  choices: Array<{ message: { content: string | null } }>;
+}): CoachOutput {
+  const content = completion.choices[0]?.message.content;
+  if (!content) throw new Error("Groq returned an empty Coach response.");
+
+  const parsed: unknown = JSON.parse(content);
+  const normalized =
+    parsed &&
+    typeof parsed === "object" &&
+    !Array.isArray(parsed) &&
+    "accepted" in parsed &&
+    parsed.accepted === true
+      ? { ...parsed, suggestedSpokenVersion: null }
+      : parsed;
+
+  return CoachOutputSchema.parse(normalized);
+}
+
 export async function transcribeRecording(
   recording: File,
 ): Promise<WhisperResponse> {
@@ -131,11 +156,20 @@ export async function transcribeRecording(
 
 export async function generateMateResponse(
   conversationMessages: ConversationMessage[],
+  timeOfDay?: TimeOfDay,
 ): Promise<MateResponse> {
   const completion = await getGroqClient().chat.completions.create({
     model: GROQ_MODELS.chat,
     messages: [
       { role: "system", content: MATE_SYSTEM_PROMPT },
+      ...(timeOfDay
+        ? [
+            {
+              role: "system" as const,
+              content: `The learner's local time of day is ${timeOfDay}. Use this only to make an empty-history greeting sound natural.`,
+            },
+          ]
+        : []),
       ...conversationMessages,
     ],
     response_format: {
@@ -152,7 +186,6 @@ export async function generateMateResponse(
 }
 
 export async function generateCoachResponse(input: {
-  acceptedConversationHistory: ConversationMessage[];
   pendingTranscript: string;
   attemptKind: CoachAttemptKind;
   retryContext?: RetryContext;
@@ -181,7 +214,7 @@ export async function generateCoachResponse(input: {
     },
   });
 
-  return parseCompletion(completion, CoachOutputSchema, "Coach");
+  return parseCoachCompletion(completion);
 }
 
 export async function generateMateSpeech(text: string) {
@@ -192,7 +225,7 @@ export async function generateSpeech(text: string) {
   const validatedText = SpeechInputSchema.parse(text);
   const response = await getGroqClient().audio.speech.create({
     model: GROQ_MODELS.textToSpeech,
-    voice: SAUDI_VOICE,
+    voice: ENGLISH_VOICE,
     input: validatedText,
     response_format: "wav",
   });
