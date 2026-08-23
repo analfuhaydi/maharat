@@ -193,7 +193,9 @@ function AudioPlayback({
         )}
       </button>
       <p
-        className="min-w-0 flex-1 text-left text-sm leading-6 whitespace-pre-wrap"
+        className={`min-w-0 flex-1 text-left text-sm leading-6 whitespace-pre-wrap ${
+          isPositive ? "text-[#8fce9f]" : "text-[#ef9a9a]"
+        }`}
         lang="en"
       >
         {transcript}
@@ -638,13 +640,15 @@ export default function Home() {
     setError("");
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = mediaStream.current?.active
+        ? mediaStream.current
+        : await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStream.current = stream;
       const preferredMimeType = "audio/webm;codecs=opus";
       const recording = MediaRecorder.isTypeSupported(preferredMimeType)
         ? new MediaRecorder(stream, { mimeType: preferredMimeType })
         : new MediaRecorder(stream);
 
-      mediaStream.current = stream;
       recorder.current = recording;
       chunks.current = [];
       recording.ondataavailable = (event) => {
@@ -670,7 +674,6 @@ export default function Home() {
 
     recorder.current = null;
     chunks.current = [];
-    stopMediaStream();
     setError("");
     setPhase(attemptKind.current === "retry" ? "correcting" : "idle");
   }
@@ -840,7 +843,6 @@ export default function Home() {
 
       recorder.current = null;
       chunks.current = [];
-      stopMediaStream();
       await submitRecording(blob, kind, endedAt);
     } catch (sendError) {
       console.error("Failed to submit recording", sendError);
@@ -888,6 +890,7 @@ export default function Home() {
     setShowEndConfirmation(false);
     stopTtsAudio();
     deleteRecording();
+    stopMediaStream();
     clearCoach();
     sessionStorage.removeItem(CONVERSATION_ID_KEY);
     conversationId.current = null;
