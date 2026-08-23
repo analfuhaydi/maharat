@@ -278,11 +278,13 @@ function RecordingActions({
 function ReviewStatus() {
   return (
     <div
-      className="flex min-h-14 items-center justify-center rounded-full bg-[#191b1d] opacity-70"
+      className="flex min-h-14 w-full cursor-wait items-center justify-center gap-2 rounded-xl bg-[#272a2d] px-5 font-semibold text-brand"
+      dir="rtl"
       role="status"
       aria-live="polite"
     >
-      جاري مراجعة التسجيل…
+      <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+      <span>نراجع ردك</span>
     </div>
   );
 }
@@ -290,32 +292,26 @@ function ReviewStatus() {
 function CoachSheet({
   coach,
   phase,
+  recordingElapsedSeconds,
   onDelete,
   onRetry,
   onSend,
 }: {
   coach: CoachState;
   phase: Extract<Phase, "correcting" | "recording" | "coaching">;
+  recordingElapsedSeconds: number;
   onDelete: () => void;
   onRetry: () => void;
   onSend: () => void;
 }) {
   return (
     <section
-      className="fixed inset-x-0 bottom-0 z-30 mx-auto max-h-[82svh] max-w-lg overflow-y-auto rounded-t-3xl border border-white/10 bg-[#191b1d] p-5"
+      className="coach-sheet fixed inset-x-0 bottom-0 z-30 mx-auto max-h-[82svh] max-w-lg overflow-y-auto rounded-t-3xl border border-white/10 bg-[#191b1d] p-5"
       dir="rtl"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="coach-sheet-title"
+      aria-label="مراجعة التسجيل"
     >
-      <div className="mb-5">
-        <p
-          id="coach-sheet-title"
-          className="text-sm font-semibold text-foreground"
-        >
-          تصحيح
-        </p>
-      </div>
       <div className="space-y-5 text-sm leading-7">
         <div>
           <p className="mb-1 text-xs text-[#ef9a9a]">أنت قلت</p>
@@ -367,23 +363,17 @@ function CoachSheet({
       ) : null}
 
       {phase === "recording" ? (
-        <div className="mt-6">
+        <div className="mt-6 space-y-3">
+          <div className="flex justify-center">
+            <RecordingTray elapsedSeconds={recordingElapsedSeconds} />
+          </div>
           <RecordingActions onDelete={onDelete} onSend={onSend} />
         </div>
       ) : null}
 
       {phase === "coaching" ? (
-        <div className="mt-6 flex gap-2" dir="ltr">
-          <button
-            type="button"
-            disabled
-            className="flex min-h-14 min-w-0 flex-[0.3] cursor-wait items-center justify-center rounded-xl bg-[#7d3439] px-3 text-sm font-medium text-[#fff4f0] opacity-50"
-          >
-            حذف
-          </button>
-          <div className="min-w-0 flex-[0.7]">
-            <ReviewStatus />
-          </div>
+        <div className="mt-6">
+          <ReviewStatus />
         </div>
       ) : null}
     </section>
@@ -939,13 +929,20 @@ export default function Home() {
       </div>
 
       {showCoach ? (
-        <CoachSheet
-          coach={coach}
-          phase={phase}
-          onDelete={deleteRecording}
-          onRetry={() => void startRecording("retry")}
-          onSend={() => void sendRecording()}
-        />
+        <>
+          <div
+            className="coach-sheet-backdrop fixed inset-0 z-20 bg-black/20"
+            aria-hidden="true"
+          />
+          <CoachSheet
+            coach={coach}
+            phase={phase}
+            recordingElapsedSeconds={recordingElapsedSeconds}
+            onDelete={deleteRecording}
+            onRetry={() => void startRecording("retry")}
+            onSend={() => void sendRecording()}
+          />
+        </>
       ) : null}
 
       {error ? (
@@ -1036,13 +1033,24 @@ export default function Home() {
                 <button
                   type="button"
                   disabled
+                  dir="rtl"
                   className={
                     isCoachProcessing
-                      ? "flex min-h-14 min-w-0 flex-[0.7] cursor-wait items-center justify-center rounded-xl bg-[#191b1d] px-5 font-semibold opacity-70"
-                      : "flex min-h-14 min-w-0 flex-[0.7] cursor-wait items-center justify-center rounded-xl bg-brand px-5 font-semibold text-[#332d3b] opacity-70"
+                      ? "flex min-h-14 min-w-0 flex-[0.7] cursor-wait items-center justify-center gap-2 rounded-xl bg-[#191b1d] px-5 font-semibold text-brand opacity-70"
+                      : "flex min-h-14 min-w-0 flex-[0.7] cursor-wait items-center justify-center gap-2 rounded-xl bg-brand px-5 font-semibold text-[#332d3b] opacity-70"
                   }
                 >
-                  {isCoachProcessing ? "جاري مراجعة التسجيل…" : "سجّل ردك"}
+                  {isCoachProcessing ? (
+                    <>
+                      <LoaderCircle
+                        className="size-5 animate-spin"
+                        aria-hidden="true"
+                      />
+                      <span>نراجع ردك</span>
+                    </>
+                  ) : (
+                    "سجّل ردك"
+                  )}
                 </button>
               </div>
             ) : null}
