@@ -5,6 +5,7 @@
   --foreground: #f4f1e8;
   --secondary: #a7a7a1;
   --brand: #f8be3f;
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
 @theme inline {
@@ -50,6 +51,33 @@ button {
   }
 }
 
+@keyframes recording-waveform {
+  from {
+    opacity: 0.55;
+    transform: scaleY(0.35);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+.recording-waveform {
+  display: flex;
+  height: 1.25rem;
+  transform-origin: center;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.recording-waveform-bar {
+  width: 0.125rem;
+  border-radius: 999px;
+  background: currentColor;
+  transform-origin: center;
+  animation: recording-waveform 900ms var(--ease-in-out) infinite alternate;
+}
+
 .coach-retry-shake {
   animation: coach-retry-shake 420ms ease-in-out 2;
 }
@@ -62,5 +90,11 @@ button {
 @media (prefers-reduced-motion: reduce) {
   .coach-retry-shake {
     animation: none;
+  }
+
+  .recording-waveform-bar {
+    animation: none;
+    opacity: 0.8;
+    transform: scaleY(0.65);
   }
 }

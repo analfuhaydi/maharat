@@ -202,6 +202,89 @@ function AudioPlayback({
   );
 }
 
+function formatRecordingTime(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = String(seconds % 60).padStart(2, "0");
+
+  return `${minutes}:${remainingSeconds}`;
+}
+
+function RecordingTray({ elapsedSeconds }: { elapsedSeconds: number }) {
+  const waveformHeights = [8, 13, 17, 11, 19, 14, 9, 16, 12, 7, 15, 10];
+
+  return (
+    <div
+      className="flex min-h-9 w-fit items-center justify-center gap-0 rounded-full bg-brand/10 px-2 text-sm text-foreground"
+      dir="ltr"
+      role="status"
+      aria-live="polite"
+    >
+      <span className="sr-only" dir="rtl">
+        جارٍ تسجيل ردّك
+      </span>
+      <span className="px-1.5 font-medium tabular-nums" aria-hidden="true">
+        {formatRecordingTime(elapsedSeconds)}
+      </span>
+      <span
+        className="flex min-h-5 items-center border-l border-white/15 pr-1.5 pl-2 text-brand"
+        aria-hidden="true"
+      >
+        <span className="recording-waveform">
+          {waveformHeights.map((height, index) => (
+            <span
+              key={`${height}-${index}`}
+              className="recording-waveform-bar"
+              style={{
+                height: `${height}px`,
+                animationDelay: `${index * -90}ms`,
+              }}
+            />
+          ))}
+        </span>
+      </span>
+    </div>
+  );
+}
+
+function RecordingActions({
+  onDelete,
+  onSend,
+}: {
+  onDelete: () => void;
+  onSend: () => void;
+}) {
+  return (
+    <div className="flex gap-2" dir="ltr">
+      <button
+        type="button"
+        onClick={onDelete}
+        className="flex min-h-14 min-w-0 flex-[0.3] touch-manipulation items-center justify-center rounded-xl bg-[#7d3439] px-3 text-sm font-medium text-[#fff4f0] transition-colors hover:bg-[#914047] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+      >
+        حذف
+      </button>
+      <button
+        type="button"
+        onClick={onSend}
+        className="flex min-h-14 min-w-0 flex-[0.7] touch-manipulation items-center justify-center rounded-xl bg-brand px-5 font-semibold text-[#332d3b] transition-colors hover:bg-[#ffc954] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+      >
+        إرسال
+      </button>
+    </div>
+  );
+}
+
+function ReviewStatus() {
+  return (
+    <div
+      className="flex min-h-14 items-center justify-center rounded-full bg-[#191b1d] opacity-70"
+      role="status"
+      aria-live="polite"
+    >
+      جاري مراجعة التسجيل…
+    </div>
+  );
+}
+
 function CoachSheet({
   coach,
   phase,
@@ -224,7 +307,10 @@ function CoachSheet({
       aria-labelledby="coach-sheet-title"
     >
       <div className="mb-5">
-        <p id="coach-sheet-title" className="text-sm font-semibold text-brand">
+        <p
+          id="coach-sheet-title"
+          className="text-sm font-semibold text-foreground"
+        >
           تصحيح
         </p>
       </div>
@@ -272,30 +358,15 @@ function CoachSheet({
         <button
           type="button"
           onClick={onRetry}
-          className="mt-6 flex min-h-12 w-full items-center justify-center rounded-full bg-brand px-5 font-medium text-[#332d3b] transition-colors hover:bg-[#ffc954] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+          className="mt-6 flex min-h-12 w-full touch-manipulation items-center justify-center rounded-full bg-brand px-5 font-medium text-[#332d3b] transition-colors hover:bg-[#ffc954] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
         >
           سجّل محاولة أخرى
         </button>
       ) : null}
 
       {phase === "recording" ? (
-        <div className="mt-6 flex gap-2" dir="ltr">
-          <button
-            type="button"
-            onClick={onDelete}
-            className="flex min-h-14 basis-1/5 items-center justify-center rounded-xl bg-[#7d3439] px-2 text-sm font-medium text-[#fff4f0] transition-colors hover:bg-[#914047] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand sm:px-4"
-            aria-label="حذف التسجيل"
-          >
-            <span>حذف</span>
-          </button>
-          <button
-            type="button"
-            onClick={onSend}
-            className="flex min-h-14 basis-4/5 items-center justify-center rounded-xl bg-brand px-5 font-semibold text-[#332d3b] transition-colors hover:bg-[#ffc954] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
-            aria-label="إرسال التسجيل"
-          >
-            إرسال
-          </button>
+        <div className="mt-6">
+          <RecordingActions onDelete={onDelete} onSend={onSend} />
         </div>
       ) : null}
 
@@ -304,17 +375,13 @@ function CoachSheet({
           <button
             type="button"
             disabled
-            className="flex min-h-14 basis-1/5 cursor-wait items-center justify-center rounded-xl bg-[#7d3439] px-2 text-sm font-medium text-[#fff4f0] opacity-50 sm:px-4"
+            className="flex min-h-14 min-w-0 flex-[0.3] cursor-wait items-center justify-center rounded-xl bg-[#7d3439] px-3 text-sm font-medium text-[#fff4f0] opacity-50"
           >
-            <span>حذف</span>
+            حذف
           </button>
-          <button
-            type="button"
-            disabled
-            className="flex min-h-14 basis-4/5 cursor-wait items-center justify-center rounded-xl bg-[#191b1d] px-5 font-semibold opacity-70"
-          >
-            جاري مراجعة التسجيل
-          </button>
+          <div className="min-w-0 flex-[0.7]">
+            <ReviewStatus />
+          </div>
         </div>
       ) : null}
     </section>
@@ -355,21 +422,14 @@ function EndConversationDialog({
             className="grid size-9 shrink-0 place-items-center rounded-full text-secondary hover:bg-white/5 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             aria-label="إلغاء"
           >
-            <X className="size-5" />
+            <X className="size-5" aria-hidden="true" />
           </button>
         </div>
-        <div className="mt-5 flex gap-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="min-h-12 flex-1 rounded-xl bg-[#272a2d] px-4 font-medium hover:bg-[#303438] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-          >
-            إلغاء
-          </button>
+        <div className="mt-5">
           <button
             type="button"
             onClick={onConfirm}
-            className="min-h-12 flex-1 rounded-xl bg-[#7d3439] px-4 font-medium text-[#fff4f0] hover:bg-[#914047] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+            className="min-h-12 w-full touch-manipulation rounded-xl bg-[#7d3439] px-4 font-medium text-[#fff4f0] hover:bg-[#914047] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
           >
             إنهاء المحادثة
           </button>
@@ -382,6 +442,7 @@ function EndConversationDialog({
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [phase, setPhase] = useState<Phase>("ready");
+  const [recordingElapsedSeconds, setRecordingElapsedSeconds] = useState(0);
   const [coach, setCoach] = useState<CoachState | null>(null);
   const [error, setError] = useState("");
   const [translatedMessages, setTranslatedMessages] = useState<string[]>([]);
@@ -495,6 +556,23 @@ export default function Home() {
     });
   }, [messages, isMateThinking]);
 
+  useEffect(() => {
+    if (phase !== "recording") return;
+
+    const updateElapsedTime = () => {
+      setRecordingElapsedSeconds(
+        Math.max(
+          0,
+          Math.floor((Date.now() - recordingStartedAt.current) / 1000),
+        ),
+      );
+    };
+
+    const intervalId = window.setInterval(updateElapsedTime, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [phase]);
+
   async function joinConversation() {
     if (phase !== "ready") return;
 
@@ -556,6 +634,7 @@ export default function Home() {
     if (!canStart) return;
 
     attemptKind.current = kind;
+    setRecordingElapsedSeconds(0);
     setError("");
 
     try {
@@ -876,102 +955,96 @@ export default function Home() {
       ) : null}
 
       {!showCoach ? (
-        <footer className="shrink-0 border-t border-white/10 px-5 py-5">
-          {phase === "ready" ? (
-            <button
-              type="button"
-              onClick={() => void joinConversation()}
-              className="flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-brand px-6 text-lg font-semibold text-[#332d3b] transition-colors hover:bg-[#ffc954] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
-            >
-              انضمام
-            </button>
-          ) : null}
-
-          {phase === "joining" ? (
-            <button
-              type="button"
-              disabled
-              className="flex min-h-14 w-full cursor-wait items-center justify-center gap-2 rounded-xl bg-brand px-6 text-lg font-semibold text-[#332d3b] opacity-70"
-            >
-              <LoaderCircle className="size-5 animate-spin" />
-              جاري البدء
-            </button>
-          ) : null}
-
-          {phase === "restoring" ? (
-            <button
-              type="button"
-              disabled
-              className="flex min-h-14 w-full cursor-wait items-center justify-center gap-2 rounded-xl bg-[#191b1d] px-6 text-lg font-semibold opacity-70"
-            >
-              <LoaderCircle className="size-5 animate-spin" />
-              جاري استعادة المحادثة
-            </button>
-          ) : null}
-
-          {phase === "idle" ? (
-            <div className="flex gap-2" dir="ltr">
-              <button
-                type="button"
-                onClick={() => setShowEndConfirmation(true)}
-                className="flex min-h-14 basis-1/5 items-center justify-center rounded-xl bg-[#7d3439] px-2 text-sm font-medium text-[#fff4f0] transition-colors hover:bg-[#914047] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand sm:px-4"
-              >
-                <span>إنهاء</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => void startRecording("initial")}
-                className="flex min-h-14 basis-4/5 items-center justify-center rounded-xl bg-brand px-5 font-semibold text-[#332d3b] transition-colors hover:bg-[#ffc954] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
-              >
-                سجّل ردك
-              </button>
-            </div>
-          ) : null}
-
+        <div className="relative shrink-0">
           {phase === "recording" ? (
-            <div className="flex gap-2" dir="ltr">
-              <button
-                type="button"
-                onClick={deleteRecording}
-                className="flex min-h-14 basis-1/5 items-center justify-center rounded-xl bg-[#7d3439] px-2 text-sm font-medium text-[#fff4f0] transition-colors hover:bg-[#914047] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand sm:px-4"
-                aria-label="حذف التسجيل"
-              >
-                <span>حذف</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => void sendRecording()}
-                className="flex min-h-14 basis-4/5 items-center justify-center rounded-xl bg-brand px-5 font-semibold text-[#332d3b] transition-colors hover:bg-[#ffc954] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
-                aria-label="إرسال التسجيل"
-              >
-                إرسال
-              </button>
+            <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center px-5 pb-2">
+              <RecordingTray elapsedSeconds={recordingElapsedSeconds} />
             </div>
           ) : null}
 
-          {isCoachProcessing || isResponseProcessing ? (
-            <div className="flex gap-2" dir="ltr">
+          <footer className="shrink-0 border-t border-white/10 px-5 py-5">
+            {phase === "ready" ? (
+              <button
+                type="button"
+                onClick={() => void joinConversation()}
+                className="flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-brand px-6 text-lg font-semibold text-[#332d3b] transition-colors hover:bg-[#ffc954] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+              >
+                انضمام
+              </button>
+            ) : null}
+
+            {phase === "joining" ? (
               <button
                 type="button"
                 disabled
-                className="flex min-h-14 basis-1/5 cursor-wait items-center justify-center rounded-xl bg-[#7d3439] px-2 text-sm font-medium text-[#fff4f0] opacity-50 sm:px-4"
+                className="flex min-h-14 w-full cursor-wait items-center justify-center gap-2 rounded-xl bg-brand px-6 text-lg font-semibold text-[#332d3b] opacity-70"
               >
-                <span>إنهاء</span>
+                <LoaderCircle className="size-5 animate-spin" />
+                جاري البدء
               </button>
+            ) : null}
+
+            {phase === "restoring" ? (
               <button
                 type="button"
                 disabled
-                className={
-                  isCoachProcessing
-                    ? "flex min-h-14 basis-4/5 cursor-wait items-center justify-center rounded-xl bg-[#191b1d] px-5 font-semibold opacity-70"
-                    : "flex min-h-14 basis-4/5 cursor-wait items-center justify-center rounded-xl bg-brand px-5 font-semibold text-[#332d3b] opacity-70"
-                }
+                className="flex min-h-14 w-full cursor-wait items-center justify-center gap-2 rounded-xl bg-[#191b1d] px-6 text-lg font-semibold opacity-70"
               >
-                {isCoachProcessing ? <>جاري مراجعة التسجيل</> : <>سجّل ردك</>}
+                <LoaderCircle className="size-5 animate-spin" />
+                جاري استعادة المحادثة
               </button>
-            </div>
-          ) : null}
-        </footer>
+            ) : null}
+
+            {phase === "idle" ? (
+              <div className="flex gap-2" dir="ltr">
+                <button
+                  type="button"
+                  onClick={() => setShowEndConfirmation(true)}
+                  className="flex min-h-14 min-w-0 flex-[0.3] touch-manipulation items-center justify-center rounded-xl bg-[#7d3439] px-3 text-sm font-medium text-[#fff4f0] transition-colors hover:bg-[#914047] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+                >
+                  إنهاء
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void startRecording("initial")}
+                  className="flex min-h-14 min-w-0 flex-[0.7] touch-manipulation items-center justify-center rounded-xl bg-brand px-5 font-semibold text-[#332d3b] transition-colors hover:bg-[#ffc954] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+                >
+                  سجّل ردك
+                </button>
+              </div>
+            ) : null}
+
+            {phase === "recording" ? (
+              <RecordingActions
+                onDelete={deleteRecording}
+                onSend={() => void sendRecording()}
+              />
+            ) : null}
+
+            {isCoachProcessing || isResponseProcessing ? (
+              <div className="flex gap-2" dir="ltr">
+                <button
+                  type="button"
+                  disabled
+                  className="flex min-h-14 min-w-0 flex-[0.3] cursor-wait items-center justify-center rounded-xl bg-[#7d3439] px-3 text-sm font-medium text-[#fff4f0] opacity-50"
+                >
+                  إنهاء
+                </button>
+                <button
+                  type="button"
+                  disabled
+                  className={
+                    isCoachProcessing
+                      ? "flex min-h-14 min-w-0 flex-[0.7] cursor-wait items-center justify-center rounded-xl bg-[#191b1d] px-5 font-semibold opacity-70"
+                      : "flex min-h-14 min-w-0 flex-[0.7] cursor-wait items-center justify-center rounded-xl bg-brand px-5 font-semibold text-[#332d3b] opacity-70"
+                  }
+                >
+                  {isCoachProcessing ? "جاري مراجعة التسجيل…" : "سجّل ردك"}
+                </button>
+              </div>
+            ) : null}
+          </footer>
+        </div>
       ) : null}
 
       {showEndConfirmation ? (
