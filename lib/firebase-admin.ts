@@ -7,9 +7,7 @@ import { getFirestore } from "firebase-admin/firestore";
 function getFirebaseAdminApp() {
   const existingApp = getApps()[0];
 
-  if (existingApp) {
-    return existingApp;
-  }
+  if (existingApp) return existingApp;
 
   const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
@@ -32,33 +30,24 @@ const firebaseAdminApp = getFirebaseAdminApp();
 export const firebaseAdminAuth = getAuth(firebaseAdminApp);
 export const firestore = getFirestore(firebaseAdminApp);
 
-type MessageSender = "maharat" | "user";
-
-export async function getNextMessageReference(
+export function getNextMessageReference(
   conversationReference: FirebaseFirestore.DocumentReference,
-  sender: MessageSender,
 ) {
-  const messagesReference = conversationReference.collection("messages");
-  const messageCountSnapshot = await messagesReference.count().get();
-  const messageNumber = messageCountSnapshot.data().count + 1;
-  const formattedMessageNumber = String(messageNumber).padStart(3, "0");
-
-  return messagesReference.doc(`${sender}-turn-${formattedMessageNumber}`);
+  return conversationReference.collection("messages").doc();
 }
 
 export async function getAuthenticatedUserId(request: Request) {
   const authorization = request.headers.get("authorization");
 
-  if (!authorization?.startsWith("Bearer ")) {
-    throw new Error("UNAUTHORIZED");
-  }
-
-  const token = authorization.slice("Bearer ".length);
+  if (!authorization?.startsWith("Bearer ")) throw new Error("UNAUTHORIZED");
 
   try {
-    const decodedToken = await firebaseAdminAuth.verifyIdToken(token);
+    const decodedToken = await firebaseAdminAuth.verifyIdToken(
+      authorization.slice("Bearer ".length),
+    );
     return decodedToken.uid;
-  } catch {
+  } catch (error) {
+    console.error("Firebase ID token verification failed", error);
     throw new Error("UNAUTHORIZED");
   }
 }

@@ -12,6 +12,9 @@
   --color-foreground: var(--foreground);
   --color-secondary: var(--secondary);
   --color-brand: var(--brand);
+  --color-issue-0: #f8be3f;
+  --color-issue-1: #8fb3e0;
+  --color-issue-2: #8fce9f;
   --font-sans: var(--font-ibm-plex-sans-arabic);
 }
 
@@ -34,21 +37,30 @@ button {
   font: inherit;
 }
 
-.message-history {
-  scrollbar-width: none;
+@keyframes coach-retry-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-0.25rem);
+  }
+  75% {
+    transform: translateX(0.25rem);
+  }
 }
 
-.message-history::-webkit-scrollbar {
-  display: none;
-}
-
-.preview-audio-range {
-  height: 1rem;
-  accent-color: var(--brand);
-  cursor: pointer;
+.coach-retry-shake {
+  animation: coach-retry-shake 420ms ease-in-out 2;
 }
 
 ::selection {
   background: var(--brand);
   color: #332d3b;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .coach-retry-shake {
+    animation: none;
+  }
 }

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import { IBM_Plex_Sans_Arabic } from "next/font/google";
 import "./globals.css";
 
@@ -9,11 +10,11 @@ const ibmPlexSansArabic = IBM_Plex_Sans_Arabic({
 });
 
 export const metadata: Metadata = {
-  title: "مهارات | طوّر السبيكنق",
-  description: "تدرّب على السبيكنق وخلك أريح وقت الكلام.",
+  title: "مهارات | تكلّم براحة",
+  description: "تحدث مع مهارات وطوّر لغتك الإنجليزية المهنية.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html
       lang="ar"

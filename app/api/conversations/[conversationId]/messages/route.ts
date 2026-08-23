@@ -9,7 +9,10 @@ import {
   MessageSchema,
   MessagesResponseSchema,
   RecordingRequestSchema,
+  RetryContextSchema,
   type Message,
+  type MateMessage,
+  type UserMessage,
 } from "@/lib/conversation-schema";
 import {
   firestore,
@@ -17,21 +20,18 @@ import {
   getNextMessageReference,
 } from "@/lib/firebase-admin";
 import {
-  generateMaharatResponse,
-  generateMaharatSpeech,
+  generateCoachResponse,
+  generateMateResponse,
+  generateMateSpeech,
+  generateSpeech,
   transcribeRecording,
-  type GroqConversationMessage,
+  type ConversationMessage,
 } from "@/lib/groq";
 
-type RouteContext = {
-  params: Promise<{ conversationId: string }>;
-};
+type RouteContext = { params: Promise<{ conversationId: string }> };
 
 function timestampToIso(value: unknown) {
-  if (!(value instanceof Timestamp)) {
-    throw new Error("Invalid Firestore timestamp.");
-  }
-
+  if (!(value instanceof Timestamp)) throw new Error("Invalid timestamp.");
   return value.toDate().toISOString();
 }
 
@@ -40,40 +40,48 @@ function documentToMessage(
 ): Message {
   const data = document.data();
 
-  if (data.sender === "maharat") {
+  if (data.sender === "mate") {
     return MessageSchema.parse({
       id: document.id,
-      sender: "maharat",
+      sender: "mate",
       text: data.text,
+      arabicTranslation: data.arabicTranslation,
       createdAt: timestampToIso(data.createdAt),
-      playbackStartedAt: data.playbackStartedAt
-        ? timestampToIso(data.playbackStartedAt)
-        : null,
-      playbackEndedAt: data.playbackEndedAt
-        ? timestampToIso(data.playbackEndedAt)
-        : null,
     });
   }
 
   return MessageSchema.parse({
     id: document.id,
     sender: "user",
+    transcript: data.transcript,
     createdAt: timestampToIso(data.createdAt),
     recordingStartedAt: timestampToIso(data.recordingStartedAt),
     recordingEndedAt: timestampToIso(data.recordingEndedAt),
-    whisperResponse: data.whisperResponse,
   });
 }
 
-async function getConversation(userId: string, conversationId: string) {
-  const reference = firestore
+function conversationReference(userId: string, conversationId: string) {
+  return firestore
     .collection("users")
     .doc(userId)
     .collection("conversations")
     .doc(conversationId);
-  const snapshot = await reference.get();
+}
 
-  return snapshot.exists ? reference : null;
+function toConversationHistory(messages: Message[]): ConversationMessage[] {
+  return messages.map((message) =>
+    message.sender === "mate"
+      ? { role: "assistant", content: message.text }
+      : { role: "user", content: message.transcript },
+  );
+}
+
+async function readMessages(reference: FirebaseFirestore.DocumentReference) {
+  const snapshot = await reference
+    .collection("messages")
+    .orderBy("createdAt", "asc")
+    .get();
+  return snapshot.docs.map(documentToMessage);
 }
 
 export async function GET(request: Request, context: RouteContext) {
@@ -86,21 +94,15 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   const { conversationId } = await context.params;
-  const conversationReference = await getConversation(userId, conversationId);
+  const reference = conversationReference(userId, conversationId);
 
-  if (!conversationReference) {
+  if (!(await reference.get()).exists) {
     return Response.json({ error: "المحادثة غير موجودة." }, { status: 404 });
   }
 
-  const snapshot = await conversationReference
-    .collection("messages")
-    .orderBy("createdAt", "asc")
-    .get();
-  const response = MessagesResponseSchema.parse({
-    messages: snapshot.docs.map(documentToMessage),
-  });
-
-  return Response.json(response);
+  return Response.json(
+    MessagesResponseSchema.parse({ messages: await readMessages(reference) }),
+  );
 }
 
 export async function POST(request: Request, context: RouteContext) {
@@ -113,119 +115,187 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   const { conversationId } = await context.params;
-  const conversationReference = await getConversation(userId, conversationId);
+  const reference = conversationReference(userId, conversationId);
 
-  if (!conversationReference) {
+  if (!(await reference.get()).exists) {
     return Response.json({ error: "المحادثة غير موجودة." }, { status: 404 });
   }
 
   const formData = await request.formData();
   const recording = formData.get("recording");
-  const timingResult = RecordingRequestSchema.safeParse({
+  const timing = RecordingRequestSchema.safeParse({
     recordingStartedAt: formData.get("recordingStartedAt"),
     recordingEndedAt: formData.get("recordingEndedAt"),
+    attemptKind: formData.get("attemptKind"),
+    retryContext: formData.get("retryContext") ?? undefined,
   });
 
-  if (!(recording instanceof File) || !timingResult.success) {
+  if (!(recording instanceof File) || !timing.success) {
     return Response.json({ error: "التسجيل غير صالح." }, { status: 400 });
+  }
+
+  let retryContext: ReturnType<typeof RetryContextSchema.parse> | undefined;
+
+  if (timing.data.attemptKind === "retry") {
+    const rawRetryContext = timing.data.retryContext;
+
+    if (!rawRetryContext) {
+      return Response.json(
+        { error: "بيانات المحاولة غير صالحة." },
+        { status: 400 },
+      );
+    }
+
+    try {
+      retryContext = RetryContextSchema.parse(JSON.parse(rawRetryContext));
+    } catch {
+      return Response.json(
+        { error: "بيانات المحاولة غير صالحة." },
+        { status: 400 },
+      );
+    }
   }
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (event: unknown) => {
-        const validatedEvent = ConversationStreamEventSchema.parse(event);
+      const send = (event: unknown) =>
         controller.enqueue(
-          encoder.encode(`${JSON.stringify(validatedEvent)}\n`),
+          encoder.encode(
+            JSON.stringify(ConversationStreamEventSchema.parse(event)) + "\n",
+          ),
         );
-      };
 
       try {
-        const whisperResponse = await transcribeRecording(recording);
-        const userMessageReference = await getNextMessageReference(
-          conversationReference,
-          "user",
-        );
-        const userMessageCreatedAt = Timestamp.now();
+        const [whisperResponse, messages] = await Promise.all([
+          transcribeRecording(recording),
+          readMessages(reference),
+        ]);
+
+        if (!whisperResponse.text.trim())
+          throw new Error("Empty transcription.");
+
+        const coach = await generateCoachResponse({
+          acceptedConversationHistory: toConversationHistory(messages),
+          pendingTranscript: whisperResponse.text,
+          attemptKind: timing.data.attemptKind,
+          retryContext,
+        });
+
+        if (!coach.accepted) {
+          if (timing.data.attemptKind === "initial") {
+            if (!coach.professionalResponse || !coach.lesson) {
+              throw new Error("Initial rejection is missing feedback.");
+            }
+
+            let professionalResponseAudioBase64: string | null = null;
+
+            try {
+              professionalResponseAudioBase64 = Buffer.from(
+                await generateSpeech(coach.professionalResponse),
+              ).toString("base64");
+            } catch (error) {
+              console.warn(
+                "Coach correction audio is temporarily unavailable",
+                error,
+              );
+            }
+
+            send({
+              type: "coachFeedback",
+              accepted: false,
+              transcript: whisperResponse.text,
+              professionalResponse: coach.professionalResponse,
+              lesson: coach.lesson,
+              professionalResponseAudioBase64,
+            });
+          } else {
+            send({
+              type: "coachRetryRejected",
+              transcript: whisperResponse.text,
+            });
+          }
+
+          return;
+        }
+
+        send({ type: "coachFeedback", accepted: true });
+
+        const userCreatedAt = Timestamp.now();
+        const userMessageReference = getNextMessageReference(reference);
+        const userMessage: UserMessage = {
+          id: userMessageReference.id,
+          sender: "user",
+          transcript: whisperResponse.text,
+          createdAt: userCreatedAt.toDate().toISOString(),
+          recordingStartedAt: Timestamp.fromMillis(
+            timing.data.recordingStartedAt,
+          )
+            .toDate()
+            .toISOString(),
+          recordingEndedAt: Timestamp.fromMillis(timing.data.recordingEndedAt)
+            .toDate()
+            .toISOString(),
+        };
 
         await userMessageReference.create({
           sender: "user",
-          createdAt: userMessageCreatedAt,
+          transcript: whisperResponse.text,
+          createdAt: userCreatedAt,
           recordingStartedAt: Timestamp.fromMillis(
-            timingResult.data.recordingStartedAt,
+            timing.data.recordingStartedAt,
           ),
-          recordingEndedAt: Timestamp.fromMillis(
-            timingResult.data.recordingEndedAt,
-          ),
-          whisperResponse,
+          recordingEndedAt: Timestamp.fromMillis(timing.data.recordingEndedAt),
         });
+        send({ type: "userMessage", message: userMessage });
+        send({ type: "mateThinking" });
 
-        send({
-          type: "userMessage",
-          message: {
-            id: userMessageReference.id,
-            sender: "user",
-            createdAt: userMessageCreatedAt.toDate().toISOString(),
-            recordingStartedAt: new Date(
-              timingResult.data.recordingStartedAt,
-            ).toISOString(),
-            recordingEndedAt: new Date(
-              timingResult.data.recordingEndedAt,
-            ).toISOString(),
-            whisperResponse,
-          },
-        });
-        send({ type: "maharatThinking" });
-
-        const messagesSnapshot = await conversationReference
-          .collection("messages")
-          .orderBy("createdAt", "asc")
-          .get();
-        const conversationMessages: GroqConversationMessage[] =
-          messagesSnapshot.docs.map((document) => {
-            const message = documentToMessage(document);
-
-            return message.sender === "maharat"
-              ? { role: "assistant", content: message.text }
-              : { role: "user", content: message.whisperResponse.text };
-          });
-        const maharatResponse =
-          await generateMaharatResponse(conversationMessages);
-
-        send({ type: "maharatGeneratingSpeech" });
-        const audio = await generateMaharatSpeech(maharatResponse.text);
-        const maharatMessageReference = await getNextMessageReference(
-          conversationReference,
-          "maharat",
+        const mate = await generateMateResponse(
+          toConversationHistory([...messages, userMessage]),
         );
-        const maharatMessageCreatedAt = Timestamp.now();
 
-        await maharatMessageReference.create({
-          sender: "maharat",
-          text: maharatResponse.text,
-          createdAt: maharatMessageCreatedAt,
-          playbackStartedAt: null,
-          playbackEndedAt: null,
+        let audioBase64: string | null = null;
+
+        try {
+          audioBase64 = Buffer.from(
+            await generateMateSpeech(mate.text),
+          ).toString("base64");
+        } catch (error) {
+          console.warn("Mate reply audio is temporarily unavailable", error);
+        }
+
+        const mateCreatedAt = Timestamp.now();
+        const mateMessageReference = getNextMessageReference(reference);
+        const mateMessage: MateMessage = {
+          id: mateMessageReference.id,
+          sender: "mate",
+          text: mate.text,
+          arabicTranslation: mate.arabicTranslation,
+          createdAt: mateCreatedAt.toDate().toISOString(),
+        };
+
+        await mateMessageReference.create({
+          sender: "mate",
+          text: mate.text,
+          arabicTranslation: mate.arabicTranslation,
+          createdAt: mateCreatedAt,
         });
 
         send({
-          type: "maharatMessage",
-          message: {
-            id: maharatMessageReference.id,
-            sender: "maharat",
-            text: maharatResponse.text,
-            createdAt: maharatMessageCreatedAt.toDate().toISOString(),
-            playbackStartedAt: null,
-            playbackEndedAt: null,
-          },
-          audioBase64: Buffer.from(audio).toString("base64"),
+          type: "mateMessage",
+          message: mateMessage,
+          audioBase64,
         });
+
+        if (!audioBase64) {
+          send({
+            type: "error",
+            message: "ردّ مهارات جاهز، لكن الصوت غير متاح مؤقتًا.",
+          });
+        }
       } catch (error) {
         console.error("Failed to process conversation message", error);
-        send({
-          type: "error",
-          message: "تعذر إكمال المحادثة. حاول مرة أخرى.",
-        });
+        send({ type: "error", message: "تعذر إكمال المحادثة. حاول مرة أخرى." });
       } finally {
         controller.close();
       }

@@ -1,12 +1,15 @@
 import { Timestamp } from "firebase-admin/firestore";
 
-import { ConversationCreatedResponseSchema } from "@/lib/conversation-schema";
+import {
+  ConversationCreatedResponseSchema,
+  type MateMessage,
+} from "@/lib/conversation-schema";
 import {
   firestore,
   getAuthenticatedUserId,
   getNextMessageReference,
 } from "@/lib/firebase-admin";
-import { generateMaharatResponse, generateMaharatSpeech } from "@/lib/groq";
+import { generateMateResponse, generateMateSpeech } from "@/lib/groq";
 
 export async function POST(request: Request) {
   let userId: string;
@@ -18,55 +21,52 @@ export async function POST(request: Request) {
   }
 
   try {
-    const maharatResponse = await generateMaharatResponse([
-      {
-        role: "user",
-        content:
-          "Begin the English speaking conversation with a short, friendly opening question.",
-      },
-    ]);
-    const audio = await generateMaharatSpeech(maharatResponse.text);
+    const mate = await generateMateResponse([]);
+    let audioBase64: string | null = null;
+
+    try {
+      audioBase64 = Buffer.from(await generateMateSpeech(mate.text)).toString(
+        "base64",
+      );
+    } catch (error) {
+      console.warn("Mate opening audio is temporarily unavailable", error);
+    }
+    const createdAt = Timestamp.now();
     const userReference = firestore.collection("users").doc(userId);
     const conversationReference = userReference
       .collection("conversations")
       .doc();
-    const messageReference = await getNextMessageReference(
-      conversationReference,
-      "maharat",
-    );
-    const createdAt = Timestamp.now();
+    const messageReference = getNextMessageReference(conversationReference);
+    const message: MateMessage = {
+      id: messageReference.id,
+      sender: "mate",
+      text: mate.text,
+      arabicTranslation: mate.arabicTranslation,
+      createdAt: createdAt.toDate().toISOString(),
+    };
 
     await firestore.runTransaction(async (transaction) => {
       const userSnapshot = await transaction.get(userReference);
 
-      if (!userSnapshot.exists) {
+      if (!userSnapshot.exists)
         transaction.create(userReference, { createdAt });
-      }
 
       transaction.create(conversationReference, { createdAt });
       transaction.create(messageReference, {
-        sender: "maharat",
-        text: maharatResponse.text,
+        sender: "mate",
+        text: mate.text,
+        arabicTranslation: mate.arabicTranslation,
         createdAt,
-        playbackStartedAt: null,
-        playbackEndedAt: null,
       });
     });
 
-    const response = ConversationCreatedResponseSchema.parse({
-      conversationId: conversationReference.id,
-      message: {
-        id: messageReference.id,
-        sender: "maharat",
-        text: maharatResponse.text,
-        createdAt: createdAt.toDate().toISOString(),
-        playbackStartedAt: null,
-        playbackEndedAt: null,
-      },
-      audioBase64: Buffer.from(audio).toString("base64"),
-    });
-
-    return Response.json(response);
+    return Response.json(
+      ConversationCreatedResponseSchema.parse({
+        conversationId: conversationReference.id,
+        message,
+        audioBase64,
+      }),
+    );
   } catch (error) {
     console.error("Failed to create conversation", error);
     return Response.json(
