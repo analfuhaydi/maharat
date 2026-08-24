@@ -36,6 +36,15 @@ button {
   font: inherit;
 }
 
+.scrollbar-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
 .correction-sheet {
   opacity: 1;
   transform: translateY(0);

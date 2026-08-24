@@ -203,7 +203,7 @@ function CorrectionSheet({
 }) {
   return (
     <section
-      className="correction-sheet fixed inset-x-0 bottom-0 z-30 mx-auto max-h-[82svh] max-w-lg overflow-y-auto rounded-t-3xl border border-white/10 bg-[#191b1d] p-5"
+      className="correction-sheet scrollbar-hidden fixed inset-x-0 bottom-0 z-30 mx-auto max-h-[82svh] max-w-lg overflow-y-auto rounded-t-3xl border border-white/10 bg-[#191b1d] p-5"
       dir="rtl"
       role="dialog"
       aria-modal="true"
@@ -678,7 +678,7 @@ export default function Home() {
       <header className="flex h-20 shrink-0 items-center justify-center">
         <Image src="/maharat-logo.svg" alt="مهارات" width={48} height={48} />
       </header>
-      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 py-6">
+      <div className="scrollbar-hidden flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 py-6">
         {messages.length === 0 ? <ReadyPrompt /> : null}
         {messages.map((message) => (
           <MessageBubble key={message.id} message={message} />
