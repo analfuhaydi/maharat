@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
-import { Languages, LoaderCircle, Pause, Play, X } from "lucide-react";
+import { Languages, LoaderCircle, X } from "lucide-react";
 import Image from "next/image";
 
 import {
@@ -31,7 +31,6 @@ type AttemptKind = "initial" | "retry";
 type CoachState = {
   retryContext: RetryContext;
   currentTranscript: string;
-  audioUrl: string;
 };
 
 function getLocalTimeOfDay(): TimeOfDay {
@@ -52,7 +51,7 @@ function MessageBubble({
   onTranslate: () => void;
 }) {
   const isMate = message.sender === "mate";
-  const text = isMate ? message.text : message.transcript;
+  const text = message.text;
 
   return (
     <article
@@ -121,61 +120,6 @@ function MateLoadingBubble() {
         <span>مهارات يكتب رده</span>
       </div>
     </article>
-  );
-}
-
-function RecordingPlayback({
-  url,
-  transcript,
-}: {
-  url: string;
-  transcript: string;
-}) {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [playing, setPlaying] = useState(false);
-
-  function togglePlayback() {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    if (audio.paused) void audio.play().catch(() => setPlaying(false));
-    else audio.pause();
-  }
-
-  return (
-    <div
-      className="flex items-center gap-3 rounded-2xl bg-[#272a2d] px-3 py-3 text-foreground"
-      dir="ltr"
-    >
-      <audio
-        ref={audioRef}
-        src={url}
-        preload="auto"
-        className="sr-only"
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
-        onError={() => setPlaying(false)}
-      />
-      <button
-        type="button"
-        onClick={togglePlayback}
-        className="grid size-9 shrink-0 place-items-center rounded-full bg-[#363a3e] hover:bg-[#42474c] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-        aria-label="استمع لتسجيلك"
-      >
-        {playing ? (
-          <Pause className="size-4 text-[#ef9a9a]" />
-        ) : (
-          <Play className="size-4 fill-current text-[#ef9a9a]" />
-        )}
-      </button>
-      <p
-        className="min-w-0 flex-1 text-left text-sm leading-6 whitespace-pre-wrap text-[#ef9a9a]"
-        lang="en"
-      >
-        {transcript}
-      </p>
-    </div>
   );
 }
 
@@ -293,13 +237,13 @@ function CoachSheet({
       <div className="space-y-5 text-sm leading-7">
         <div>
           <p className="mb-1 text-xs text-[#ef9a9a]">أنت قلت</p>
-          <div className="mt-2">
-            <RecordingPlayback
-              key={coach.audioUrl}
-              url={coach.audioUrl}
-              transcript={coach.currentTranscript}
-            />
-          </div>
+          <p
+            className="mt-2 rounded-2xl bg-[#272a2d] px-4 py-3 text-left text-sm leading-6 whitespace-pre-wrap text-[#ef9a9a]"
+            dir="ltr"
+            lang="en"
+          >
+            {coach.currentTranscript}
+          </p>
         </div>
         <div>
           <p className="mb-1 text-xs text-[#8fce9f]">صياغة مقترحة</p>
@@ -405,25 +349,11 @@ export default function Home() {
   const chunks = useRef<Blob[]>([]);
   const recordingStartedAt = useRef(0);
   const attemptKind = useRef<AttemptKind>("initial");
-  const coachAudioUrl = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const isMateThinking = phase === "mate-thinking";
 
-  function releaseCoachAudio() {
-    if (coachAudioUrl.current) {
-      URL.revokeObjectURL(coachAudioUrl.current);
-      coachAudioUrl.current = null;
-    }
-  }
-
   function clearCoach() {
-    releaseCoachAudio();
     setCoach(null);
-  }
-
-  function keepCoachAudio(url: string) {
-    if (coachAudioUrl.current) URL.revokeObjectURL(coachAudioUrl.current);
-    coachAudioUrl.current = url;
   }
 
   function stopMediaStream() {
@@ -480,7 +410,6 @@ export default function Home() {
       cancelled = true;
       unsubscribe();
       stopMediaStream();
-      releaseCoachAudio();
     };
   }, []);
 
@@ -594,11 +523,7 @@ export default function Home() {
     setPhase(attemptKind.current === "retry" ? "correcting" : "idle");
   }
 
-  async function submitRecording(
-    blob: Blob,
-    kind: AttemptKind,
-    recordingEndedAt: number,
-  ) {
+  async function submitRecording(blob: Blob, kind: AttemptKind) {
     if (!conversationId.current) return;
 
     const user = firebaseAuth.currentUser;
@@ -606,104 +531,89 @@ export default function Home() {
 
     const form = new FormData();
     form.set("recording", blob, "recording.webm");
-    form.set("recordingStartedAt", String(recordingStartedAt.current));
-    form.set("recordingEndedAt", String(recordingEndedAt));
     form.set("attemptKind", kind);
 
     if (kind === "retry" && coach) {
       form.set("retryContext", JSON.stringify(coach.retryContext));
     }
 
-    const recordingUrl = URL.createObjectURL(blob);
-    let keepRecordingUrl = false;
+    const token = await user.getIdToken();
+    const response = await fetch(
+      `/api/conversations/${conversationId.current}/messages`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      },
+    );
 
-    try {
-      const token = await user.getIdToken();
-      const response = await fetch(
-        `/api/conversations/${conversationId.current}/messages`,
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-          body: form,
-        },
-      );
+    if (!response.ok || !response.body) throw new Error("No response");
 
-      if (!response.ok || !response.body) throw new Error("No response");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
+    const processLine = (line: string) => {
+      const event = ConversationStreamEventSchema.parse(JSON.parse(line));
 
-      const processLine = (line: string) => {
-        const event = ConversationStreamEventSchema.parse(JSON.parse(line));
-
-        if (event.type === "coachFeedback") {
-          if (event.accepted) {
-            attemptKind.current = "initial";
-            clearCoach();
-            setPhase("accepted");
-          } else {
-            keepRecordingUrl = true;
-            keepCoachAudio(recordingUrl);
-            setCoach({
-              retryContext: {
-                transcript: event.transcript,
-                suggestedSpokenVersion: event.suggestedSpokenVersion,
-              },
-              currentTranscript: event.transcript,
-              audioUrl: recordingUrl,
-            });
-            attemptKind.current = "retry";
-            setPhase("correcting");
-          }
-        }
-
-        if (event.type === "coachRetryRejected") {
-          keepRecordingUrl = true;
-          keepCoachAudio(recordingUrl);
-          setCoach((current) =>
-            current
-              ? {
-                  ...current,
-                  currentTranscript: event.transcript,
-                  audioUrl: recordingUrl,
-                }
-              : current,
-          );
+      if (event.type === "coachFeedback") {
+        if (event.accepted) {
+          attemptKind.current = "initial";
+          clearCoach();
+          setPhase("accepted");
+        } else {
+          setCoach({
+            retryContext: {
+              transcript: event.transcript,
+              suggestedSpokenVersion: event.suggestedSpokenVersion,
+            },
+            currentTranscript: event.transcript,
+          });
+          attemptKind.current = "retry";
           setPhase("correcting");
         }
-
-        if (event.type === "mateThinking") setPhase("mate-thinking");
-
-        if (event.type === "userMessage") {
-          setMessages((current) => [...current, event.message]);
-        }
-
-        if (event.type === "mateMessage") {
-          setMessages((current) => [...current, event.message]);
-          setPhase("idle");
-        }
-
-        if (event.type === "error") {
-          setError(event.message);
-          setPhase(attemptKind.current === "retry" ? "correcting" : "idle");
-        }
-      };
-
-      while (true) {
-        const result = await reader.read();
-        if (result.done) break;
-        buffer += decoder.decode(result.value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines.filter(Boolean)) processLine(line);
       }
 
-      if (buffer.trim()) processLine(buffer);
-    } finally {
-      if (!keepRecordingUrl) URL.revokeObjectURL(recordingUrl);
+      if (event.type === "coachRetryRejected") {
+        setCoach((current) =>
+          current
+            ? {
+                ...current,
+                currentTranscript: event.transcript,
+              }
+            : current,
+        );
+        setPhase("correcting");
+      }
+
+      if (event.type === "mateThinking") setPhase("mate-thinking");
+
+      if (event.type === "userMessage") {
+        setMessages((current) => [...current, event.message]);
+      }
+
+      if (event.type === "mateMessage") {
+        setMessages((current) => [...current, event.message]);
+        setPhase("idle");
+      }
+
+      if (event.type === "error") {
+        setError(event.message);
+        setPhase(attemptKind.current === "retry" ? "correcting" : "idle");
+      }
+    };
+
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      buffer += decoder.decode(result.value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines.filter(Boolean)) processLine(line);
     }
+
+    if (buffer.trim()) processLine(buffer);
   }
 
   async function sendRecording() {
@@ -711,7 +621,6 @@ export default function Home() {
 
     const currentRecorder = recorder.current;
     const kind = attemptKind.current;
-    const endedAt = Date.now();
     setPhase("coaching");
     setError("");
 
@@ -730,7 +639,7 @@ export default function Home() {
 
       recorder.current = null;
       chunks.current = [];
-      await submitRecording(blob, kind, endedAt);
+      await submitRecording(blob, kind);
     } catch (sendError) {
       console.error("Failed to submit recording", sendError);
       setError("تعذر إرسال التسجيل. حاول مرة أخرى.");

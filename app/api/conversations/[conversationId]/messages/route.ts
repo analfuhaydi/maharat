@@ -15,9 +15,9 @@ import {
   type UserMessage,
 } from "@/lib/conversation-schema";
 import {
+  createNextMessage,
   firestore,
   getAuthenticatedUserId,
-  getNextMessageReference,
 } from "@/lib/firebase-admin";
 import {
   generateCoachResponse,
@@ -51,10 +51,8 @@ function documentToMessage(
   return MessageSchema.parse({
     id: document.id,
     sender: "user",
-    transcript: data.transcript,
+    text: data.text,
     createdAt: timestampToIso(data.createdAt),
-    recordingStartedAt: timestampToIso(data.recordingStartedAt),
-    recordingEndedAt: timestampToIso(data.recordingEndedAt),
   });
 }
 
@@ -70,7 +68,7 @@ function toConversationHistory(messages: Message[]): ConversationMessage[] {
   return messages.map((message) =>
     message.sender === "mate"
       ? { role: "assistant", content: message.text }
-      : { role: "user", content: message.transcript },
+      : { role: "user", content: message.text },
   );
 }
 
@@ -122,8 +120,6 @@ export async function POST(request: Request, context: RouteContext) {
   const formData = await request.formData();
   const recording = formData.get("recording");
   const timing = RecordingRequestSchema.safeParse({
-    recordingStartedAt: formData.get("recordingStartedAt"),
-    recordingEndedAt: formData.get("recordingEndedAt"),
     attemptKind: formData.get("attemptKind"),
     retryContext: formData.get("retryContext") ?? undefined,
   });
@@ -204,31 +200,23 @@ export async function POST(request: Request, context: RouteContext) {
         send({ type: "coachFeedback", accepted: true });
 
         const userCreatedAt = Timestamp.now();
-        const userMessageReference = getNextMessageReference(reference);
+        const userMessageData = {
+          sender: "user",
+          text: whisperResponse.text,
+          createdAt: userCreatedAt,
+        };
+        const userMessageReference = await createNextMessage(
+          reference,
+          "user",
+          userMessageData,
+        );
         const userMessage: UserMessage = {
           id: userMessageReference.id,
           sender: "user",
-          transcript: whisperResponse.text,
+          text: whisperResponse.text,
           createdAt: userCreatedAt.toDate().toISOString(),
-          recordingStartedAt: Timestamp.fromMillis(
-            timing.data.recordingStartedAt,
-          )
-            .toDate()
-            .toISOString(),
-          recordingEndedAt: Timestamp.fromMillis(timing.data.recordingEndedAt)
-            .toDate()
-            .toISOString(),
         };
 
-        await userMessageReference.create({
-          sender: "user",
-          transcript: whisperResponse.text,
-          createdAt: userCreatedAt,
-          recordingStartedAt: Timestamp.fromMillis(
-            timing.data.recordingStartedAt,
-          ),
-          recordingEndedAt: Timestamp.fromMillis(timing.data.recordingEndedAt),
-        });
         send({ type: "userMessage", message: userMessage });
         send({ type: "mateThinking" });
 
@@ -237,7 +225,16 @@ export async function POST(request: Request, context: RouteContext) {
         );
 
         const mateCreatedAt = Timestamp.now();
-        const mateMessageReference = getNextMessageReference(reference);
+        const mateMessageReference = await createNextMessage(
+          reference,
+          "mate",
+          {
+            sender: "mate",
+            text: mate.text,
+            arabicTranslation: mate.arabicTranslation,
+            createdAt: mateCreatedAt,
+          },
+        );
         const mateMessage: MateMessage = {
           id: mateMessageReference.id,
           sender: "mate",
@@ -245,13 +242,6 @@ export async function POST(request: Request, context: RouteContext) {
           arabicTranslation: mate.arabicTranslation,
           createdAt: mateCreatedAt.toDate().toISOString(),
         };
-
-        await mateMessageReference.create({
-          sender: "mate",
-          text: mate.text,
-          arabicTranslation: mate.arabicTranslation,
-          createdAt: mateCreatedAt,
-        });
 
         send({
           type: "mateMessage",

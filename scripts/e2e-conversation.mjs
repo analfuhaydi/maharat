@@ -113,14 +113,11 @@ async function readAudioFixture(name) {
 }
 
 async function submitRecording(idToken, audio, attemptKind, retryContext) {
-  const now = Date.now();
   const form = new FormData();
   form.set(
     "recording",
     new File([audio], "recording.wav", { type: "audio/wav" }),
   );
-  form.set("recordingStartedAt", String(now - 5000));
-  form.set("recordingEndedAt", String(now));
   form.set("attemptKind", attemptKind);
   if (retryContext) form.set("retryContext", JSON.stringify(retryContext));
 
@@ -283,6 +280,19 @@ async function run() {
     mateMessages.length === 2,
     "The saved Mate message count was incorrect.",
   );
+  assert(
+    userMessages.every(
+      (message) => "text" in message && !("transcript" in message),
+    ),
+    "User messages did not use the text field.",
+  );
+  assert(
+    afterAcceptance.messages.every(
+      (message) =>
+        !("recordingStartedAt" in message) && !("recordingEndedAt" in message),
+    ),
+    "Recording timestamps leaked into saved messages.",
+  );
   const secondAudio = await readAudioFixture("accepted-response.wav");
   const secondEvents = await submitRecording(
     auth.idToken,
@@ -312,6 +322,11 @@ async function run() {
       (message) => message.sender === "mate",
     ).length === 3,
     "The saved Mate message count after the second turn was incorrect.",
+  );
+  assert(
+    afterSecondAcceptance.messages.map((message) => message.id).join(",") ===
+      "maharat-turn-001,user-turn-002,maharat-turn-003,user-turn-004,maharat-turn-005",
+    "Message IDs did not use the expected turn prefixes.",
   );
 
   console.log("E2E conversation flow passed.");

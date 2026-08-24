@@ -8,7 +8,7 @@ import {
 import {
   firestore,
   getAuthenticatedUserId,
-  getNextMessageReference,
+  getMessageReference,
 } from "@/lib/firebase-admin";
 import { generateMateResponse } from "@/lib/groq";
 
@@ -39,7 +39,11 @@ export async function POST(request: Request) {
     const conversationReference = userReference
       .collection("conversations")
       .doc();
-    const messageReference = getNextMessageReference(conversationReference);
+    const messageReference = getMessageReference(
+      conversationReference,
+      "mate",
+      1,
+    );
     const message: MateMessage = {
       id: messageReference.id,
       sender: "mate",

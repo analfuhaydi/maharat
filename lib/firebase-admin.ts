@@ -30,10 +30,51 @@ const firebaseAdminApp = getFirebaseAdminApp();
 export const firebaseAdminAuth = getAuth(firebaseAdminApp);
 export const firestore = getFirestore(firebaseAdminApp);
 
-export function getNextMessageReference(
+type MessageSender = "mate" | "user";
+
+export function getMessageId(sender: MessageSender, turnNumber: number) {
+  const prefix = sender === "mate" ? "maharat" : "user";
+  return `${prefix}-turn-${String(turnNumber).padStart(3, "0")}`;
+}
+
+export function getMessageReference(
   conversationReference: FirebaseFirestore.DocumentReference,
+  sender: MessageSender,
+  turnNumber: number,
 ) {
-  return conversationReference.collection("messages").doc();
+  return conversationReference
+    .collection("messages")
+    .doc(getMessageId(sender, turnNumber));
+}
+
+export async function createNextMessage(
+  conversationReference: FirebaseFirestore.DocumentReference,
+  sender: MessageSender,
+  data: FirebaseFirestore.DocumentData,
+) {
+  const messagesReference = conversationReference.collection("messages");
+  let messageReference: FirebaseFirestore.DocumentReference | undefined;
+
+  await firestore.runTransaction(async (transaction) => {
+    const messagesSnapshot = await transaction.get(messagesReference);
+    const nextTurnNumber =
+      messagesSnapshot.docs.reduce((highestTurnNumber, document) => {
+        const match = document.id.match(/-turn-(\d+)$/);
+        return Math.max(
+          highestTurnNumber,
+          match ? Number(match[1]) : highestTurnNumber,
+        );
+      }, 0) + 1;
+
+    messageReference = messagesReference.doc(
+      getMessageId(sender, nextTurnNumber),
+    );
+    transaction.create(messageReference, data);
+  });
+
+  if (!messageReference) throw new Error("Message reference was not created.");
+
+  return messageReference;
 }
 
 export async function getAuthenticatedUserId(request: Request) {

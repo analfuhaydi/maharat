@@ -45,10 +45,8 @@ export const MateMessageSchema = z.object({
 export const UserMessageSchema = z.object({
   id: z.string().min(1),
   sender: z.literal("user"),
-  transcript: z.string().min(1),
+  text: z.string().min(1),
   createdAt: IsoDateSchema,
-  recordingStartedAt: IsoDateSchema,
-  recordingEndedAt: IsoDateSchema,
 });
 
 export const MessageSchema = z.discriminatedUnion("sender", [
@@ -68,8 +66,6 @@ export const ConversationCreatedResponseSchema = z.object({
 export const RecordingAttemptKindSchema = z.enum(["initial", "retry"]);
 
 export const RecordingRequestSchema = z.object({
-  recordingStartedAt: z.coerce.number().int().nonnegative(),
-  recordingEndedAt: z.coerce.number().int().nonnegative(),
   attemptKind: RecordingAttemptKindSchema,
   retryContext: z.string().optional(),
 });
