@@ -31,6 +31,10 @@ export const ConversationStartRequestSchema = z.object({
   timeOfDay: z.enum(["morning", "afternoon", "evening"]).optional(),
 });
 
+export const SpeechRequestSchema = z.object({
+  text: z.string().trim().min(1).max(1000),
+});
+
 export const MateMessageSchema = z.object({
   id: z.string().min(1),
   sender: z.literal("mate"),

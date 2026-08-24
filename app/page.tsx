@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
-import { LoaderCircle, X } from "lucide-react";
+import { LoaderCircle, Pause, Play, X } from "lucide-react";
 import Image from "next/image";
 
 import {
@@ -27,7 +27,47 @@ type Phase =
 type CorrectionState = {
   transcript: string;
   suggestedSpokenVersion: string;
+  recordingUrl: string;
 };
+
+type PlaybackStatus = "idle" | "loading" | "playing";
+
+function AudioButton({
+  label,
+  status,
+  onClick,
+  tone = "neutral",
+}: {
+  label: string;
+  status: PlaybackStatus;
+  onClick: () => void;
+  tone?: "neutral" | "red" | "green";
+}) {
+  const toneClass = {
+    neutral: "text-secondary hover:text-foreground",
+    red: "bg-[#ef9a9a]/15 text-[#ef9a9a] hover:bg-[#ef9a9a]/25 hover:text-[#ffc1c1]",
+    green:
+      "bg-[#8fce9f]/15 text-[#8fce9f] hover:bg-[#8fce9f]/25 hover:text-[#b8e8c4]",
+  }[tone];
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`grid size-9 shrink-0 place-items-center rounded-full transition-colors hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${toneClass}`}
+      aria-label={status === "playing" ? "إيقاف الصوت" : label}
+      aria-pressed={status === "playing"}
+    >
+      {status === "loading" ? (
+        <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+      ) : status === "playing" ? (
+        <Pause className="size-4" fill="currentColor" aria-hidden="true" />
+      ) : (
+        <Play className="size-4" fill="currentColor" aria-hidden="true" />
+      )}
+    </button>
+  );
+}
 
 function getLocalTimeOfDay(): TimeOfDay {
   const hour = new Date().getHours();
@@ -37,7 +77,15 @@ function getLocalTimeOfDay(): TimeOfDay {
   return "evening";
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({
+  message,
+  playbackStatus,
+  onPlay,
+}: {
+  message: Message;
+  playbackStatus: PlaybackStatus;
+  onPlay: () => void;
+}) {
   const isMate = message.sender === "mate";
   const text = message.text;
 
@@ -54,7 +102,16 @@ function MessageBubble({ message }: { message: Message }) {
         dir="ltr"
         lang="en"
       >
-        <p>{text}</p>
+        <div className="flex items-start gap-2">
+          <p className="min-w-0 flex-1">{text}</p>
+          {isMate ? (
+            <AudioButton
+              label="تشغيل صوت ميت"
+              status={playbackStatus}
+              onClick={onPlay}
+            />
+          ) : null}
+        </div>
         {isMate ? (
           <p className="mt-2 text-xs text-secondary" dir="rtl" lang="ar">
             {message.arabicTranslation}
@@ -154,9 +211,17 @@ function RecordingActions({
 function CorrectionSheet({
   correction,
   onRecordAgain,
+  recordingPlaybackStatus,
+  correctionPlaybackStatus,
+  onPlayRecording,
+  onPlayCorrection,
 }: {
   correction: CorrectionState;
   onRecordAgain: () => void;
+  recordingPlaybackStatus: PlaybackStatus;
+  correctionPlaybackStatus: PlaybackStatus;
+  onPlayRecording: () => void;
+  onPlayCorrection: () => void;
 }) {
   return (
     <section
@@ -169,23 +234,39 @@ function CorrectionSheet({
       <div className="space-y-5 text-sm leading-7">
         <div>
           <p className="mb-1 text-xs text-[#ef9a9a]">أنت قلت</p>
-          <p
-            className="mt-2 rounded-2xl bg-[#272a2d] px-4 py-3 text-left text-sm leading-6 whitespace-pre-wrap text-[#ef9a9a]"
+          <div
+            className="mt-2 flex items-start gap-2 rounded-2xl bg-[#272a2d] py-2 pr-2 pl-4 text-[#ef9a9a]"
             dir="ltr"
             lang="en"
           >
-            {correction.transcript}
-          </p>
+            <p className="min-w-0 flex-1 py-1 text-left text-sm leading-6 whitespace-pre-wrap">
+              {correction.transcript}
+            </p>
+            <AudioButton
+              label="تشغيل تسجيلك"
+              status={recordingPlaybackStatus}
+              onClick={onPlayRecording}
+              tone="red"
+            />
+          </div>
         </div>
         <div>
           <p className="mb-1 text-xs text-[#8fce9f]">صياغة مقترحة</p>
-          <p
-            className="rounded-2xl bg-[#272a2d] px-4 py-3 text-left text-sm leading-6 whitespace-pre-wrap text-[#8fce9f]"
+          <div
+            className="flex items-start gap-2 rounded-2xl bg-[#272a2d] py-2 pr-2 pl-4 text-[#8fce9f]"
             dir="ltr"
             lang="en"
           >
-            {correction.suggestedSpokenVersion}
-          </p>
+            <p className="min-w-0 flex-1 py-1 text-left text-sm leading-6 whitespace-pre-wrap">
+              {correction.suggestedSpokenVersion}
+            </p>
+            <AudioButton
+              label="تشغيل الصياغة المقترحة"
+              status={correctionPlaybackStatus}
+              onClick={onPlayCorrection}
+              tone="green"
+            />
+          </div>
         </div>
       </div>
       <button
@@ -263,8 +344,98 @@ export default function Home() {
   const chunks = useRef<Blob[]>([]);
   const recordingStartedAt = useRef(0);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const audio = useRef<HTMLAudioElement | null>(null);
+  const speechUrls = useRef(new Map<string, string>());
+  const pendingRecording = useRef<Blob | null>(null);
+  const correctionRecordingUrl = useRef<string | null>(null);
+  const activePlaybackKey = useRef<string | null>(null);
+  const [playback, setPlayback] = useState<{
+    key: string | null;
+    status: PlaybackStatus;
+  }>({ key: null, status: "idle" });
+
+  function stopPlayback() {
+    audio.current?.pause();
+    audio.current = null;
+    activePlaybackKey.current = null;
+    setPlayback({ key: null, status: "idle" });
+  }
+
+  async function playUrl(key: string, url: string) {
+    if (activePlaybackKey.current === key) {
+      stopPlayback();
+      return;
+    }
+
+    stopPlayback();
+    activePlaybackKey.current = key;
+    setPlayback({ key, status: "loading" });
+
+    const nextAudio = new Audio(url);
+    audio.current = nextAudio;
+    nextAudio.onplay = () => setPlayback({ key, status: "playing" });
+    nextAudio.onended = stopPlayback;
+    nextAudio.onerror = stopPlayback;
+
+    try {
+      await nextAudio.play();
+    } catch (playbackError) {
+      console.warn("Audio playback was blocked", playbackError);
+      stopPlayback();
+    }
+  }
+
+  async function playSpeech(key: string, text: string) {
+    if (activePlaybackKey.current === key) {
+      stopPlayback();
+      return;
+    }
+
+    const cachedUrl = speechUrls.current.get(text);
+    if (cachedUrl) {
+      await playUrl(key, cachedUrl);
+      return;
+    }
+
+    stopPlayback();
+    activePlaybackKey.current = key;
+    setPlayback({ key, status: "loading" });
+
+    try {
+      const user = firebaseAuth.currentUser;
+      if (!user) throw new Error("The conversation user is unavailable.");
+      const token = await user.getIdToken();
+      const response = await fetch("/api/speech", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ text }),
+      });
+      if (!response.ok) throw new Error("Speech could not be generated.");
+
+      const url = URL.createObjectURL(await response.blob());
+      speechUrls.current.set(text, url);
+      if (activePlaybackKey.current === key) {
+        activePlaybackKey.current = null;
+        await playUrl(key, url);
+      }
+    } catch (speechError) {
+      console.error("Failed to play speech", speechError);
+      if (activePlaybackKey.current === key) stopPlayback();
+    }
+  }
+
+  function getPlaybackStatus(key: string): PlaybackStatus {
+    return playback.key === key ? playback.status : "idle";
+  }
 
   function clearCorrection() {
+    if (correctionRecordingUrl.current) {
+      URL.revokeObjectURL(correctionRecordingUrl.current);
+      correctionRecordingUrl.current = null;
+    }
     setCorrection(null);
   }
 
@@ -321,7 +492,19 @@ export default function Home() {
     return () => {
       cancelled = true;
       unsubscribe();
-      stopMediaStream();
+    };
+  }, []);
+
+  useEffect(() => {
+    const urls = speechUrls.current;
+
+    return () => {
+      mediaStream.current?.getTracks().forEach((track) => track.stop());
+      audio.current?.pause();
+      for (const url of urls.values()) URL.revokeObjectURL(url);
+      if (correctionRecordingUrl.current) {
+        URL.revokeObjectURL(correctionRecordingUrl.current);
+      }
     };
   }, []);
 
@@ -378,6 +561,10 @@ export default function Home() {
       setMessages([conversation.message]);
       clearCorrection();
       setPhase("idle");
+      void playSpeech(
+        `mate-${conversation.message.id}`,
+        conversation.message.text,
+      );
     } catch (joinError) {
       console.error("Failed to join conversation", joinError);
       conversationId.current = null;
@@ -390,6 +577,7 @@ export default function Home() {
   async function startRecording() {
     if (phase !== "idle" && phase !== "correcting") return;
 
+    stopPlayback();
     clearCorrection();
     setPhase("idle");
     setRecordingElapsedSeconds(0);
@@ -410,6 +598,8 @@ export default function Home() {
       recording.ondataavailable = (event) => {
         if (event.data.size) chunks.current.push(event.data);
       };
+      // This timestamp belongs to the user-triggered recording event.
+      // eslint-disable-next-line react-hooks/purity
       recordingStartedAt.current = Date.now();
       recording.start();
       setPhase("recording");
@@ -440,6 +630,7 @@ export default function Home() {
     const user = firebaseAuth.currentUser;
     if (!user) throw new Error("The conversation user is unavailable.");
 
+    pendingRecording.current = blob;
     const form = new FormData();
     form.set("recording", blob, "recording.webm");
 
@@ -463,9 +654,14 @@ export default function Home() {
       const event = ConversationStreamEventSchema.parse(JSON.parse(line));
 
       if (event.type === "correction") {
+        const recordingUrl = pendingRecording.current
+          ? URL.createObjectURL(pendingRecording.current)
+          : "";
+        correctionRecordingUrl.current = recordingUrl;
         setCorrection({
           transcript: event.transcript,
           suggestedSpokenVersion: event.suggestedSpokenVersion,
+          recordingUrl,
         });
         setPhase("correcting");
       }
@@ -478,6 +674,7 @@ export default function Home() {
       if (event.type === "mateMessage") {
         setMessages((current) => [...current, event.message]);
         setPhase("idle");
+        void playSpeech(`mate-${event.message.id}`, event.message.text);
       }
 
       if (event.type === "error") {
@@ -497,6 +694,7 @@ export default function Home() {
     }
 
     if (buffer.trim()) processLine(buffer);
+    pendingRecording.current = null;
   }
 
   async function sendRecording() {
@@ -552,7 +750,12 @@ export default function Home() {
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 py-6">
         {messages.length === 0 ? <ReadyPrompt /> : null}
         {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
+          <MessageBubble
+            key={message.id}
+            message={message}
+            playbackStatus={getPlaybackStatus(`mate-${message.id}`)}
+            onPlay={() => void playSpeech(`mate-${message.id}`, message.text)}
+          />
         ))}
         <div ref={messagesEndRef} aria-hidden="true" />
       </div>
@@ -566,6 +769,19 @@ export default function Home() {
           <CorrectionSheet
             correction={correction}
             onRecordAgain={() => void startRecording()}
+            recordingPlaybackStatus={getPlaybackStatus("correction-recording")}
+            correctionPlaybackStatus={getPlaybackStatus(
+              "correction-suggestion",
+            )}
+            onPlayRecording={() =>
+              void playUrl("correction-recording", correction.recordingUrl)
+            }
+            onPlayCorrection={() =>
+              void playSpeech(
+                "correction-suggestion",
+                correction.suggestedSpokenVersion,
+              )
+            }
           />
         </>
       ) : null}

@@ -17,7 +17,10 @@ import {
 const GROQ_MODELS = {
   chat: "openai/gpt-oss-20b",
   speechToText: "whisper-large-v3",
+  textToSpeech: "canopylabs/orpheus-v1-english",
 } as const;
+
+const MATE_VOICE = "hannah";
 
 const STT_PROMPT =
   "Transcribe the English speech exactly as spoken. Preserve filler words, repetitions, incomplete sentences, hesitations, and grammatical mistakes. Do not correct, rewrite, summarize, or complete the speaker's sentences.";
@@ -88,6 +91,15 @@ export async function transcribeRecording(
   });
 
   return WhisperResponseSchema.parse(JSON.parse(JSON.stringify(transcription)));
+}
+
+export async function synthesizeSpeech(text: string) {
+  return getGroqClient().audio.speech.create({
+    model: GROQ_MODELS.textToSpeech,
+    voice: MATE_VOICE,
+    input: text,
+    response_format: "wav",
+  });
 }
 
 export async function generateMateOpening(
