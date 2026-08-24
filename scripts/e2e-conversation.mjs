@@ -11,6 +11,7 @@ const firebaseApiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
 const groqApiKey =
   process.env.GROQ_E2E_API_KEY ||
   process.env.GROQ_FALLBACK_API_KEY ||
+  process.env.GROQ_FALLBACK_TWO_API_KEY ||
   process.env.GROQ_API_KEY;
 
 if (!firebaseApiKey || !groqApiKey) {

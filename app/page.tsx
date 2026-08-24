@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
-import { LoaderCircle, Pause, Play, X } from "lucide-react";
+import { Languages, LoaderCircle, Pause, Play, Volume2, X } from "lucide-react";
 import Image from "next/image";
 
 import {
   ConversationCreatedResponseSchema,
   ConversationTurnResponseSchema,
   MessagesResponseSchema,
+  SpeechResponseSchema,
   type TimeOfDay,
   type Message,
 } from "@/lib/conversation-schema";
@@ -28,6 +29,7 @@ type CorrectionState = {
   transcript: string;
   suggestedSpokenVersion: string;
   recordingUrl: string;
+  audioUrl: string;
 };
 
 type PlaybackStatus = "idle" | "loading" | "playing";
@@ -60,6 +62,32 @@ function AudioButton({
   );
 }
 
+function CorrectedAudioButton({
+  status,
+  onClick,
+}: {
+  status: PlaybackStatus;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mt-2 flex min-h-9 items-center gap-2 text-sm font-medium text-[#8fce9f] hover:text-[#b2e5bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+      aria-pressed={status === "playing"}
+    >
+      {status === "loading" ? (
+        <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+      ) : status === "playing" ? (
+        <Pause className="size-4" fill="currentColor" aria-hidden="true" />
+      ) : (
+        <Play className="size-4" fill="currentColor" aria-hidden="true" />
+      )}
+      <span>{status === "playing" ? "إيقاف صوت نورة" : "استمع بصوت نورة"}</span>
+    </button>
+  );
+}
+
 function getLocalTimeOfDay(): TimeOfDay {
   const hour = new Date().getHours();
 
@@ -68,9 +96,18 @@ function getLocalTimeOfDay(): TimeOfDay {
   return "evening";
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({
+  message,
+  playbackStatus,
+  onReplay,
+}: {
+  message: Message;
+  playbackStatus: PlaybackStatus;
+  onReplay: () => void;
+}) {
   const isMate = message.sender === "mate";
   const text = message.text;
+  const [showTranslation, setShowTranslation] = useState(false);
 
   return (
     <article
@@ -86,12 +123,49 @@ function MessageBubble({ message }: { message: Message }) {
         lang="en"
       >
         <p>{text}</p>
-        {isMate ? (
+        {isMate && showTranslation ? (
           <p className="mt-2 text-xs text-secondary" dir="rtl" lang="ar">
             {message.arabicTranslation}
           </p>
         ) : null}
       </div>
+      {isMate ? (
+        <div className="mt-1 flex justify-start gap-1" dir="ltr">
+          <button
+            type="button"
+            onClick={onReplay}
+            className="grid size-8 place-items-center rounded-full text-brand hover:bg-brand/10 hover:text-[#ffc954] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            aria-label={
+              playbackStatus === "playing" ? "إيقاف الصوت" : "إعادة تشغيل الصوت"
+            }
+            aria-pressed={playbackStatus === "playing"}
+          >
+            {playbackStatus === "loading" ? (
+              <LoaderCircle
+                className="size-4 animate-spin"
+                aria-hidden="true"
+              />
+            ) : playbackStatus === "playing" ? (
+              <Pause
+                className="size-4"
+                fill="currentColor"
+                aria-hidden="true"
+              />
+            ) : (
+              <Volume2 className="size-4" aria-hidden="true" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowTranslation((current) => !current)}
+            className="grid size-8 place-items-center rounded-full text-brand hover:bg-brand/10 hover:text-[#ffc954] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+            aria-label={showTranslation ? "إخفاء الترجمة" : "عرض الترجمة"}
+            aria-pressed={showTranslation}
+          >
+            <Languages className="size-4" aria-hidden="true" />
+          </button>
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -190,7 +264,9 @@ function CorrectionSheet({
   phase,
   recordingElapsedSeconds,
   recordingPlaybackStatus,
+  correctedPlaybackStatus,
   onPlayRecording,
+  onPlayCorrected,
 }: {
   correction: CorrectionState;
   onRecordAgain: () => void;
@@ -199,7 +275,9 @@ function CorrectionSheet({
   phase: Phase;
   recordingElapsedSeconds: number;
   recordingPlaybackStatus: PlaybackStatus;
+  correctedPlaybackStatus: PlaybackStatus;
   onPlayRecording: () => void;
+  onPlayCorrected: () => void;
 }) {
   return (
     <section
@@ -230,13 +308,17 @@ function CorrectionSheet({
         <div>
           <p className="mb-1 text-xs text-[#8fce9f]">صياغة مقترحة</p>
           <div
-            className="flex items-start gap-2 rounded-2xl bg-[#272a2d] py-2 pr-2 pl-4 text-[#8fce9f]"
+            className="rounded-2xl bg-[#272a2d] px-4 py-2 text-[#8fce9f]"
             dir="ltr"
             lang="en"
           >
-            <p className="min-w-0 flex-1 py-1 text-left text-sm leading-6 whitespace-pre-wrap">
+            <p className="py-1 text-left text-sm leading-6 whitespace-pre-wrap">
               {correction.suggestedSpokenVersion}
             </p>
+            <CorrectedAudioButton
+              status={correctedPlaybackStatus}
+              onClick={onPlayCorrected}
+            />
           </div>
         </div>
       </div>
@@ -347,6 +429,7 @@ export default function Home() {
   const audio = useRef<HTMLAudioElement | null>(null);
   const pendingRecording = useRef<Blob | null>(null);
   const correctionRecordingUrl = useRef<string | null>(null);
+  const mateAudioUrls = useRef(new Map<string, string>());
   const activePlaybackKey = useRef<string | null>(null);
   const [playback, setPlayback] = useState<{
     key: string | null;
@@ -386,6 +469,50 @@ export default function Home() {
 
   function getPlaybackStatus(key: string): PlaybackStatus {
     return playback.key === key ? playback.status : "idle";
+  }
+
+  async function replayMateMessage(messageId: string) {
+    const key = `mate-${messageId}`;
+    const cachedAudioUrl = mateAudioUrls.current.get(messageId);
+
+    if (cachedAudioUrl) {
+      await playUrl(key, cachedAudioUrl);
+      return;
+    }
+
+    if (!conversationId.current || activePlaybackKey.current === key) {
+      stopPlayback();
+      return;
+    }
+
+    const user = firebaseAuth.currentUser;
+    if (!user) return;
+
+    stopPlayback();
+    activePlaybackKey.current = key;
+    setPlayback({ key, status: "loading" });
+
+    try {
+      const token = await user.getIdToken();
+      const response = await fetch(
+        `/api/conversations/${conversationId.current}/messages/${messageId}/speech`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (!response.ok) throw new Error("Message speech generation failed.");
+
+      const { audioUrl } = SpeechResponseSchema.parse(await response.json());
+      mateAudioUrls.current.set(messageId, audioUrl);
+      if (activePlaybackKey.current !== key) return;
+      stopPlayback();
+      await playUrl(key, audioUrl);
+    } catch (speechError) {
+      console.error("Failed to replay Mate message", speechError);
+      stopPlayback();
+      setError("تعذر تشغيل الرسالة. حاول مرة أخرى.");
+    }
   }
 
   function clearCorrection() {
@@ -514,6 +641,8 @@ export default function Home() {
       conversationId.current = conversation.conversationId;
       sessionStorage.setItem(CONVERSATION_ID_KEY, conversation.conversationId);
       setMessages([conversation.message]);
+      mateAudioUrls.current.set(conversation.message.id, conversation.audioUrl);
+      void playUrl(`mate-${conversation.message.id}`, conversation.audioUrl);
       clearCorrection();
       setPhase("idle");
     } catch (joinError) {
@@ -551,6 +680,7 @@ export default function Home() {
         if (event.data.size) chunks.current.push(event.data);
       };
       // This timestamp belongs to the user-triggered recording event.
+      // eslint-disable-next-line react-hooks/purity -- The event handler needs the actual recording start time.
       recordingStartedAt.current = Date.now();
       recording.start();
       setPhase("recording");
@@ -608,6 +738,7 @@ export default function Home() {
         transcript: turn.transcript,
         suggestedSpokenVersion: turn.suggestedSpokenVersion,
         recordingUrl,
+        audioUrl: turn.audioUrl,
       });
       setIsRetryingCorrection(false);
       setPhase("correcting");
@@ -619,6 +750,8 @@ export default function Home() {
         turn.userMessage,
         turn.mateMessage,
       ]);
+      mateAudioUrls.current.set(turn.mateMessage.id, turn.audioUrl);
+      void playUrl(`mate-${turn.mateMessage.id}`, turn.audioUrl);
       setPhase("idle");
     }
     pendingRecording.current = null;
@@ -662,6 +795,7 @@ export default function Home() {
     sessionStorage.removeItem(CONVERSATION_ID_KEY);
     conversationId.current = null;
     setMessages([]);
+    mateAudioUrls.current.clear();
     setError("");
     setPhase("ready");
   }
@@ -681,7 +815,12 @@ export default function Home() {
       <div className="scrollbar-hidden flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 py-6">
         {messages.length === 0 ? <ReadyPrompt /> : null}
         {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
+          <MessageBubble
+            key={message.id}
+            message={message}
+            playbackStatus={getPlaybackStatus(`mate-${message.id}`)}
+            onReplay={() => void replayMateMessage(message.id)}
+          />
         ))}
         <div ref={messagesEndRef} aria-hidden="true" />
       </div>
@@ -700,8 +839,12 @@ export default function Home() {
             phase={phase}
             recordingElapsedSeconds={recordingElapsedSeconds}
             recordingPlaybackStatus={getPlaybackStatus("correction-recording")}
+            correctedPlaybackStatus={getPlaybackStatus("correction-corrected")}
             onPlayRecording={() =>
               void playUrl("correction-recording", correction.recordingUrl)
+            }
+            onPlayCorrected={() =>
+              void playUrl("correction-corrected", correction.audioUrl)
             }
           />
         </>

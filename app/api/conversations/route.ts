@@ -10,7 +10,7 @@ import {
   getAuthenticatedUserId,
   getMessageReference,
 } from "@/lib/firebase-admin";
-import { generateMateOpening } from "@/lib/groq";
+import { generateMateOpening, generateSpeech } from "@/lib/groq";
 
 export async function POST(request: Request) {
   let userId: string;
@@ -34,6 +34,7 @@ export async function POST(request: Request) {
     }
 
     const mate = await generateMateOpening(startRequest.data.timeOfDay);
+    const audioUrl = await generateSpeech(mate.text);
     const createdAt = Timestamp.now();
     const userReference = firestore.collection("users").doc(userId);
     const conversationReference = userReference
@@ -71,6 +72,7 @@ export async function POST(request: Request) {
       ConversationCreatedResponseSchema.parse({
         conversationId: conversationReference.id,
         message,
+        audioUrl,
       }),
       { headers: { "Cache-Control": "private, no-store" } },
     );

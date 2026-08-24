@@ -1,6 +1,9 @@
 import { z } from "zod";
 
 const IsoDateSchema = z.iso.datetime();
+const TtsAudioSchema = z.string().startsWith("data:audio/wav;base64,");
+
+export const SpeechResponseSchema = z.object({ audioUrl: TtsAudioSchema });
 
 export const WhisperResponseSchema = z
   .object({ text: z.string() })
@@ -66,6 +69,7 @@ export const MessagesResponseSchema = z.object({
 export const ConversationCreatedResponseSchema = z.object({
   conversationId: z.string().min(1),
   message: MateMessageSchema,
+  audioUrl: TtsAudioSchema,
 });
 
 export const ConversationTurnResponseSchema = z.discriminatedUnion("outcome", [
@@ -73,11 +77,13 @@ export const ConversationTurnResponseSchema = z.discriminatedUnion("outcome", [
     outcome: z.literal("correction"),
     transcript: z.string().min(1),
     suggestedSpokenVersion: z.string().min(1),
+    audioUrl: TtsAudioSchema,
   }),
   z.object({
     outcome: z.literal("reply"),
     userMessage: UserMessageSchema,
     mateMessage: MateMessageSchema,
+    audioUrl: TtsAudioSchema,
   }),
 ]);
 

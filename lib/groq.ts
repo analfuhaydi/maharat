@@ -18,7 +18,10 @@ import {
 const GROQ_MODELS = {
   chat: "openai/gpt-oss-20b",
   speechToText: "whisper-large-v3",
+  textToSpeech: "canopylabs/orpheus-arabic-saudi",
 } as const;
+
+const GROQ_TTS_VOICE = "noura";
 
 const STT_PROMPT =
   "Transcribe the English speech exactly as spoken. Preserve filler words, repetitions, incomplete sentences, hesitations, and grammatical mistakes. Do not correct, rewrite, summarize, or complete the speaker's sentences.";
@@ -53,6 +56,8 @@ Accept the message when it is clear, natural to say aloud, and appropriate profe
 
 If the message needs correction, return outcome "correction" with one suggestedSpokenVersion. Preserve the learner's intended meaning and use only information the learner provided. Make the suggestion natural and comfortable to say aloud. Do not explain the correction or continue the conversation.
 
+In every English output, write numbers in words. For example, write "three" instead of "3".
+
 If the message is accepted, return outcome "reply" and continue the conversation naturally.
 
 When continuing the conversation:
@@ -77,10 +82,31 @@ export type ConversationMessage = {
   content: string;
 };
 
-function getGroqClient() {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) throw new Error("GROQ_API_KEY is not configured.");
-  return new Groq({ apiKey });
+function getGroqClients() {
+  const apiKeys = [
+    process.env.GROQ_API_KEY,
+    process.env.GROQ_FALLBACK_API_KEY,
+    process.env.GROQ_FALLBACK_TWO_API_KEY,
+  ].filter((apiKey): apiKey is string => Boolean(apiKey));
+
+  if (!apiKeys.length) throw new Error("No Groq API key is configured.");
+  return [...new Set(apiKeys)].map((apiKey) => new Groq({ apiKey }));
+}
+
+async function withGroqFallback<T>(
+  operation: (client: Groq) => Promise<T>,
+): Promise<T> {
+  let lastError: unknown;
+
+  for (const client of getGroqClients()) {
+    try {
+      return await operation(client);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
 }
 
 async function parseCompletion<T>(
@@ -108,24 +134,26 @@ async function generateMateEnvelope<T>(
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const completion = await getGroqClient().chat.completions.create({
-        model: GROQ_MODELS.chat,
-        messages: [
-          { role: "system", content: MATE_SYSTEM_PROMPT },
-          { role: "system", content: formatPrompt },
-          ...messages,
-          ...(attempt === 1
-            ? [
-                {
-                  role: "system" as const,
-                  content:
-                    "The previous response was invalid. Return only the required JSON object now, with no reasoning or extra fields.",
-                },
-              ]
-            : []),
-        ],
-        response_format: { type: "json_object" },
-      });
+      const completion = await withGroqFallback((client) =>
+        client.chat.completions.create({
+          model: GROQ_MODELS.chat,
+          messages: [
+            { role: "system", content: MATE_SYSTEM_PROMPT },
+            { role: "system", content: formatPrompt },
+            ...messages,
+            ...(attempt === 1
+              ? [
+                  {
+                    role: "system" as const,
+                    content:
+                      "The previous response was invalid. Return only the required JSON object now, with no reasoning or extra fields.",
+                  },
+                ]
+              : []),
+          ],
+          response_format: { type: "json_object" },
+        }),
+      );
 
       return await parseCompletion(completion, schema, label);
     } catch (error) {
@@ -139,16 +167,31 @@ async function generateMateEnvelope<T>(
 export async function transcribeRecording(
   recording: File,
 ): Promise<WhisperResponse> {
-  const transcription = await getGroqClient().audio.transcriptions.create({
-    file: recording,
-    model: GROQ_MODELS.speechToText,
-    language: "en",
-    temperature: 0,
-    response_format: "json",
-    prompt: STT_PROMPT,
-  });
+  const transcription = await withGroqFallback((client) =>
+    client.audio.transcriptions.create({
+      file: recording,
+      model: GROQ_MODELS.speechToText,
+      language: "en",
+      temperature: 0,
+      response_format: "json",
+      prompt: STT_PROMPT,
+    }),
+  );
 
   return WhisperResponseSchema.parse(JSON.parse(JSON.stringify(transcription)));
+}
+
+export async function generateSpeech(text: string): Promise<string> {
+  const audio = await withGroqFallback(async (client) => {
+    const response = await client.audio.speech.create({
+      model: GROQ_MODELS.textToSpeech,
+      voice: GROQ_TTS_VOICE,
+      input: text,
+      response_format: "wav",
+    });
+    return Buffer.from(await response.arrayBuffer()).toString("base64");
+  });
+  return `data:audio/wav;base64,${audio}`;
 }
 
 export async function generateMateOpening(

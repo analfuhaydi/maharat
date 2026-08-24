@@ -19,6 +19,7 @@ import {
 } from "@/lib/firebase-admin";
 import {
   generateMateTurn,
+  generateSpeech,
   transcribeRecording,
   type ConversationMessage,
 } from "@/lib/groq";
@@ -135,11 +136,13 @@ export async function POST(request: Request, context: RouteContext) {
     );
 
     if (mate.outcome === "correction") {
+      const audioUrl = await generateSpeech(mate.suggestedSpokenVersion);
       return Response.json(
         ConversationTurnResponseSchema.parse({
           outcome: "correction",
           transcript: whisperResponse.text,
           suggestedSpokenVersion: mate.suggestedSpokenVersion,
+          audioUrl,
         }),
         { headers: { "Cache-Control": "private, no-store" } },
       );
@@ -147,6 +150,7 @@ export async function POST(request: Request, context: RouteContext) {
 
     const userCreatedAt = Timestamp.now();
     const mateCreatedAt = Timestamp.fromMillis(userCreatedAt.toMillis() + 1);
+    const audioUrl = await generateSpeech(mate.text);
     const userMessageData = {
       sender: "user",
       text: whisperResponse.text,
@@ -179,6 +183,7 @@ export async function POST(request: Request, context: RouteContext) {
         outcome: "reply",
         userMessage,
         mateMessage,
+        audioUrl,
       }),
       { headers: { "Cache-Control": "private, no-store" } },
     );
