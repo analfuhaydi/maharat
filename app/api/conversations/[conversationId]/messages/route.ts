@@ -5,7 +5,7 @@ import type {
 import { Timestamp } from "firebase-admin/firestore";
 
 import {
-  ConversationStreamEventSchema,
+  ConversationTurnResponseSchema,
   MessageSchema,
   MessagesResponseSchema,
   type Message,
@@ -121,92 +121,72 @@ export async function POST(request: Request, context: RouteContext) {
     return Response.json({ error: "التسجيل غير صالح." }, { status: 400 });
   }
 
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    async start(controller) {
-      const send = (event: unknown) =>
-        controller.enqueue(
-          encoder.encode(
-            JSON.stringify(ConversationStreamEventSchema.parse(event)) + "\n",
-          ),
-        );
+  try {
+    const [whisperResponse, messages] = await Promise.all([
+      transcribeRecording(recording),
+      readMessages(reference),
+    ]);
 
-      try {
-        const [whisperResponse, messages] = await Promise.all([
-          transcribeRecording(recording),
-          readMessages(reference),
-        ]);
+    if (!whisperResponse.text.trim()) throw new Error("Empty transcription.");
 
-        if (!whisperResponse.text.trim())
-          throw new Error("Empty transcription.");
+    const mate = await generateMateTurn(
+      toConversationHistory(messages),
+      whisperResponse.text,
+    );
 
-        const mate = await generateMateTurn(
-          toConversationHistory(messages),
-          whisperResponse.text,
-        );
+    if (mate.outcome === "correction") {
+      return Response.json(
+        ConversationTurnResponseSchema.parse({
+          outcome: "correction",
+          transcript: whisperResponse.text,
+          suggestedSpokenVersion: mate.suggestedSpokenVersion,
+        }),
+        { headers: { "Cache-Control": "private, no-store" } },
+      );
+    }
 
-        if (mate.outcome === "correction") {
-          send({
-            type: "correction",
-            transcript: whisperResponse.text,
-            suggestedSpokenVersion: mate.suggestedSpokenVersion,
-          });
-          return;
-        }
+    const userCreatedAt = Timestamp.now();
+    const mateCreatedAt = Timestamp.fromMillis(userCreatedAt.toMillis() + 1);
+    const userMessageData = {
+      sender: "user",
+      text: whisperResponse.text,
+      createdAt: userCreatedAt,
+    };
+    const mateMessageData = {
+      sender: "mate",
+      text: mate.text,
+      arabicTranslation: mate.arabicTranslation,
+      createdAt: mateCreatedAt,
+    };
+    const { userMessageReference, mateMessageReference } =
+      await createConversationTurn(reference, userMessageData, mateMessageData);
+    const userMessage: UserMessage = {
+      id: userMessageReference.id,
+      sender: "user",
+      text: whisperResponse.text,
+      createdAt: userCreatedAt.toDate().toISOString(),
+    };
+    const mateMessage: MateMessage = {
+      id: mateMessageReference.id,
+      sender: "mate",
+      text: mate.text,
+      arabicTranslation: mate.arabicTranslation,
+      createdAt: mateCreatedAt.toDate().toISOString(),
+    };
 
-        const userCreatedAt = Timestamp.now();
-        const mateCreatedAt = Timestamp.fromMillis(
-          userCreatedAt.toMillis() + 1,
-        );
-        const userMessageData = {
-          sender: "user",
-          text: whisperResponse.text,
-          createdAt: userCreatedAt,
-        };
-        const mateMessageData = {
-          sender: "mate",
-          text: mate.text,
-          arabicTranslation: mate.arabicTranslation,
-          createdAt: mateCreatedAt,
-        };
-        const { userMessageReference, mateMessageReference } =
-          await createConversationTurn(
-            reference,
-            userMessageData,
-            mateMessageData,
-          );
-        const userMessage: UserMessage = {
-          id: userMessageReference.id,
-          sender: "user",
-          text: whisperResponse.text,
-          createdAt: userCreatedAt.toDate().toISOString(),
-        };
-        const mateMessage: MateMessage = {
-          id: mateMessageReference.id,
-          sender: "mate",
-          text: mate.text,
-          arabicTranslation: mate.arabicTranslation,
-          createdAt: mateCreatedAt.toDate().toISOString(),
-        };
-
-        send({ type: "userMessage", message: userMessage });
-        send({
-          type: "mateMessage",
-          message: mateMessage,
-        });
-      } catch (error) {
-        console.error("Failed to process conversation message", error);
-        send({ type: "error", message: "تعذر إكمال المحادثة. حاول مرة أخرى." });
-      } finally {
-        controller.close();
-      }
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "application/x-ndjson; charset=utf-8",
-      "Cache-Control": "no-store",
-    },
-  });
+    return Response.json(
+      ConversationTurnResponseSchema.parse({
+        outcome: "reply",
+        userMessage,
+        mateMessage,
+      }),
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
+  } catch (error) {
+    console.error("Failed to process conversation message", error);
+    return Response.json(
+      { error: "تعذر إكمال المحادثة. حاول مرة أخرى." },
+      { status: 500 },
+    );
+  }
 }

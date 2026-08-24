@@ -72,6 +72,7 @@ export async function POST(request: Request) {
         conversationId: conversationReference.id,
         message,
       }),
+      { headers: { "Cache-Control": "private, no-store" } },
     );
   } catch (error) {
     console.error("Failed to create conversation", error);

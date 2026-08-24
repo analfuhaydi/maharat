@@ -105,7 +105,7 @@ async function createConversation(idToken) {
   if (!response.ok) {
     throw new Error(`Conversation creation failed: ${await response.text()}`);
   }
-  return response.json();
+  return { payload: await response.json() };
 }
 
 async function readAudioFixture(name) {
@@ -130,10 +130,7 @@ async function submitRecording(idToken, audio) {
     throw new Error(`Recording submission failed: ${await response.text()}`);
   }
 
-  return (await response.text())
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => JSON.parse(line));
+  return { payload: await response.json() };
 }
 
 async function readMessages(idToken) {
@@ -177,7 +174,8 @@ async function run() {
 
   const auth = await authenticateAnonymously();
   userId = auth.localId;
-  const opening = await createConversation(auth.idToken);
+  const openingResponse = await createConversation(auth.idToken);
+  const opening = openingResponse.payload;
   conversationId = opening.conversationId;
 
   assert(opening.message.sender === "mate", "Opening sender was not Mate.");
@@ -185,28 +183,21 @@ async function run() {
     opening.message.arabicTranslation,
     "Opening Arabic translation was missing.",
   );
-  assert(!("audioBase64" in opening), "Opening response included TTS audio.");
 
   const weakAudio = await readAudioFixture("weak-response.wav");
-  const firstEvents = await submitRecording(auth.idToken, weakAudio);
-  const firstCorrection = firstEvents.find(
-    (event) => event.type === "correction",
+  const firstResponse = await submitRecording(auth.idToken, weakAudio);
+  const firstCorrection = firstResponse.payload;
+  assert(
+    firstCorrection.outcome === "correction",
+    `Weak response was accepted as ${firstCorrection.outcome}.`,
   );
-  if (!firstCorrection) {
-    const eventTypes = firstEvents.map((event) => event.type).join(", ");
-    throw new Error(`Weak response was accepted. Events: ${eventTypes}`);
-  }
   assert(
     firstCorrection.suggestedSpokenVersion,
     "Suggested spoken version was missing.",
   );
-  assert(
-    !("suggestedSpokenVersionAudioBase64" in firstCorrection),
-    "Correction included TTS audio.",
-  );
   assert(!("lesson" in firstCorrection), "Correction included a lesson.");
   assert(
-    firstEvents.every((event) => event.type !== "mateMessage"),
+    !("mateMessage" in firstCorrection),
     "Mate replied to a rejected answer.",
   );
 
@@ -216,35 +207,31 @@ async function run() {
     "A rejected answer was persisted.",
   );
 
-  const secondRejectedEvents = await submitRecording(auth.idToken, weakAudio);
+  const secondRejectedResponse = await submitRecording(auth.idToken, weakAudio);
   assert(
-    secondRejectedEvents.some((event) => event.type === "correction"),
+    secondRejectedResponse.payload.outcome === "correction",
     "A new rejected recording did not return its own correction.",
   );
   assert(
-    secondRejectedEvents.every(
-      (event) => event.type !== "userMessage" && event.type !== "mateMessage",
-    ),
+    !("userMessage" in secondRejectedResponse.payload) &&
+      !("mateMessage" in secondRejectedResponse.payload),
     "A rejected recording produced conversation messages.",
   );
 
   const strongAudio = await readAudioFixture("corrected-response.wav");
-  const acceptedEvents = await submitRecording(auth.idToken, strongAudio);
+  const acceptedResponse = await submitRecording(auth.idToken, strongAudio);
   assert(
-    acceptedEvents.some((event) => event.type === "userMessage"),
+    acceptedResponse.payload.outcome === "reply" &&
+      acceptedResponse.payload.userMessage,
     "A clear professional answer was not accepted.",
   );
-  const mateEvent = acceptedEvents.find(
-    (event) => event.type === "mateMessage",
-  );
-  assert(mateEvent, "Mate did not reply after acceptance.");
+  const mateMessage = acceptedResponse.payload.mateMessage;
+  assert(mateMessage, "Mate did not reply after acceptance.");
+  assert(mateMessage.arabicTranslation, "Mate Arabic translation was missing.");
   assert(
-    mateEvent.message.arabicTranslation,
-    "Mate Arabic translation was missing.",
-  );
-  assert(!("audioBase64" in mateEvent), "Mate response included TTS audio.");
-  assert(
-    !JSON.stringify(mateEvent).includes("suggestedSpokenVersion"),
+    !JSON.stringify(acceptedResponse.payload).includes(
+      "suggestedSpokenVersion",
+    ),
     "Correction data leaked into Mate output.",
   );
 
@@ -283,15 +270,16 @@ async function run() {
     "Correction data leaked into saved messages.",
   );
   const secondAudio = await readAudioFixture("accepted-response.wav");
-  const secondEvents = await submitRecording(auth.idToken, secondAudio);
+  const secondResponse = await submitRecording(auth.idToken, secondAudio);
   assert(
-    secondEvents.some((event) => event.type === "userMessage"),
+    secondResponse.payload.outcome === "reply" &&
+      secondResponse.payload.userMessage,
     "A clear answer was not accepted.",
   );
-  const secondMateEvent = secondEvents.find(
-    (event) => event.type === "mateMessage",
+  assert(
+    secondResponse.payload.mateMessage,
+    "Mate did not reply to the second accepted answer.",
   );
-  assert(secondMateEvent, "Mate did not reply to the second accepted answer.");
 
   const afterSecondAcceptance = await readMessages(auth.idToken);
   assert(

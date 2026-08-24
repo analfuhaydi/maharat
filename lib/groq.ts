@@ -4,6 +4,7 @@ import Groq from "groq-sdk";
 import { z } from "zod";
 
 import {
+  MateOpeningEnvelopeSchema,
   MateResponseSchema,
   MateTurnEnvelopeSchema,
   MateTurnResultSchema,
@@ -17,13 +18,27 @@ import {
 const GROQ_MODELS = {
   chat: "openai/gpt-oss-20b",
   speechToText: "whisper-large-v3",
-  textToSpeech: "canopylabs/orpheus-v1-english",
 } as const;
-
-const MATE_VOICE = "hannah";
 
 const STT_PROMPT =
   "Transcribe the English speech exactly as spoken. Preserve filler words, repetitions, incomplete sentences, hesitations, and grammatical mistakes. Do not correct, rewrite, summarize, or complete the speaker's sentences.";
+
+const MATE_JSON_FORMAT_PROMPT = `
+Return only one valid JSON object. Do not include reasoning, commentary, markdown, or tool calls.
+
+For a correction, use exactly:
+{"result":{"outcome":"correction","suggestedSpokenVersion":"..."}}
+
+For a reply, use exactly:
+{"result":{"outcome":"reply","text":"...","arabicTranslation":"..."}}
+`.trim();
+
+const MATE_OPENING_JSON_FORMAT_PROMPT = `
+Return only one valid JSON object. Do not include reasoning, commentary, markdown, or tool calls.
+
+Use exactly:
+{"result":{"outcome":"reply","text":"...","arabicTranslation":"..."}}
+`.trim();
 
 const MATE_SYSTEM_PROMPT = `
 You are Maharat Mate, a calm and attentive English conversation partner for an Arabic-speaking learner.
@@ -78,6 +93,49 @@ async function parseCompletion<T>(
   return schema.parse(JSON.parse(content));
 }
 
+type MatePromptMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};
+
+async function generateMateEnvelope<T>(
+  messages: MatePromptMessage[],
+  label: string,
+  schema: z.ZodType<T>,
+  formatPrompt = MATE_JSON_FORMAT_PROMPT,
+): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const completion = await getGroqClient().chat.completions.create({
+        model: GROQ_MODELS.chat,
+        messages: [
+          { role: "system", content: MATE_SYSTEM_PROMPT },
+          { role: "system", content: formatPrompt },
+          ...messages,
+          ...(attempt === 1
+            ? [
+                {
+                  role: "system" as const,
+                  content:
+                    "The previous response was invalid. Return only the required JSON object now, with no reasoning or extra fields.",
+                },
+              ]
+            : []),
+        ],
+        response_format: { type: "json_object" },
+      });
+
+      return await parseCompletion(completion, schema, label);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
+}
+
 export async function transcribeRecording(
   recording: File,
 ): Promise<WhisperResponse> {
@@ -93,22 +151,11 @@ export async function transcribeRecording(
   return WhisperResponseSchema.parse(JSON.parse(JSON.stringify(transcription)));
 }
 
-export async function synthesizeSpeech(text: string) {
-  return getGroqClient().audio.speech.create({
-    model: GROQ_MODELS.textToSpeech,
-    voice: MATE_VOICE,
-    input: text,
-    response_format: "wav",
-  });
-}
-
 export async function generateMateOpening(
   timeOfDay?: TimeOfDay,
 ): Promise<MateResponse> {
-  const completion = await getGroqClient().chat.completions.create({
-    model: GROQ_MODELS.chat,
-    messages: [
-      { role: "system", content: MATE_SYSTEM_PROMPT },
+  const { result } = await generateMateEnvelope(
+    [
       ...(timeOfDay
         ? [
             {
@@ -117,25 +164,16 @@ export async function generateMateOpening(
             },
           ]
         : []),
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "mate_opening",
-        strict: true,
-        schema: z.toJSONSchema(MateTurnEnvelopeSchema),
+      {
+        role: "user",
+        content:
+          "Begin this new conversation now. There is no learner message to review, so return a reply greeting and never a correction.",
       },
-    },
-  });
-
-  const { result } = await parseCompletion(
-    completion,
-    MateTurnEnvelopeSchema,
+    ],
     "Mate opening",
+    MateOpeningEnvelopeSchema,
+    MATE_OPENING_JSON_FORMAT_PROMPT,
   );
-  if (result.outcome !== "reply") {
-    throw new Error("Mate returned a correction for an empty conversation.");
-  }
   return MateResponseSchema.parse(result);
 }
 
@@ -143,27 +181,10 @@ export async function generateMateTurn(
   conversationMessages: ConversationMessage[],
   pendingTranscript: string,
 ): Promise<MateTurnResult> {
-  const completion = await getGroqClient().chat.completions.create({
-    model: GROQ_MODELS.chat,
-    messages: [
-      { role: "system", content: MATE_SYSTEM_PROMPT },
-      ...conversationMessages,
-      { role: "user", content: pendingTranscript },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: {
-        name: "mate_turn_result",
-        strict: true,
-        schema: z.toJSONSchema(MateTurnEnvelopeSchema),
-      },
-    },
-  });
-
-  const { result } = await parseCompletion(
-    completion,
-    MateTurnEnvelopeSchema,
+  const { result } = await generateMateEnvelope(
+    [...conversationMessages, { role: "user", content: pendingTranscript }],
     "Mate turn",
+    MateTurnEnvelopeSchema,
   );
   return MateTurnResultSchema.parse(result);
 }

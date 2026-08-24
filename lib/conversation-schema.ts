@@ -27,12 +27,16 @@ export const MateTurnEnvelopeSchema = z.object({
   result: MateTurnResultSchema,
 });
 
-export const ConversationStartRequestSchema = z.object({
-  timeOfDay: z.enum(["morning", "afternoon", "evening"]).optional(),
+export const MateOpeningEnvelopeSchema = z.object({
+  result: z.object({
+    outcome: z.literal("reply"),
+    text: z.string().trim().min(1).max(300),
+    arabicTranslation: z.string().trim().min(1).max(400),
+  }),
 });
 
-export const SpeechRequestSchema = z.object({
-  text: z.string().trim().min(1).max(1000),
+export const ConversationStartRequestSchema = z.object({
+  timeOfDay: z.enum(["morning", "afternoon", "evening"]).optional(),
 });
 
 export const MateMessageSchema = z.object({
@@ -64,21 +68,17 @@ export const ConversationCreatedResponseSchema = z.object({
   message: MateMessageSchema,
 });
 
-export const ConversationStreamEventSchema = z.union([
+export const ConversationTurnResponseSchema = z.discriminatedUnion("outcome", [
   z.object({
-    type: z.literal("correction"),
+    outcome: z.literal("correction"),
     transcript: z.string().min(1),
     suggestedSpokenVersion: z.string().min(1),
   }),
   z.object({
-    type: z.literal("userMessage"),
-    message: UserMessageSchema,
+    outcome: z.literal("reply"),
+    userMessage: UserMessageSchema,
+    mateMessage: MateMessageSchema,
   }),
-  z.object({
-    type: z.literal("mateMessage"),
-    message: MateMessageSchema,
-  }),
-  z.object({ type: z.literal("error"), message: z.string().min(1) }),
 ]);
 
 export type WhisperResponse = z.infer<typeof WhisperResponseSchema>;
@@ -90,6 +90,6 @@ export type TimeOfDay = z.infer<
 export type MateMessage = z.infer<typeof MateMessageSchema>;
 export type UserMessage = z.infer<typeof UserMessageSchema>;
 export type Message = z.infer<typeof MessageSchema>;
-export type ConversationStreamEvent = z.infer<
-  typeof ConversationStreamEventSchema
+export type ConversationTurnResponse = z.infer<
+  typeof ConversationTurnResponseSchema
 >;
