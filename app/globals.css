@@ -14,9 +14,6 @@
   --color-foreground: var(--foreground);
   --color-secondary: var(--secondary);
   --color-brand: var(--brand);
-  --color-issue-0: #f8be3f;
-  --color-issue-1: #8fb3e0;
-  --color-issue-2: #8fce9f;
   --font-sans: var(--font-ibm-plex-sans-arabic);
 }
 
@@ -39,7 +36,7 @@ button {
   font: inherit;
 }
 
-.coach-sheet {
+.correction-sheet {
   opacity: 1;
   transform: translateY(0);
   transition:
@@ -48,32 +45,19 @@ button {
   will-change: transform, opacity;
 }
 
-.coach-sheet-backdrop {
+.correction-sheet-backdrop {
   opacity: 1;
   transition: opacity 160ms var(--ease-out);
 }
 
 @starting-style {
-  .coach-sheet {
+  .correction-sheet {
     opacity: 0;
     transform: translateY(1rem);
   }
 
-  .coach-sheet-backdrop {
+  .correction-sheet-backdrop {
     opacity: 0;
-  }
-}
-
-@keyframes coach-retry-shake {
-  0%,
-  100% {
-    transform: translateX(0);
-  }
-  25% {
-    transform: translateX(-0.25rem);
-  }
-  75% {
-    transform: translateX(0.25rem);
   }
 }
 
@@ -104,38 +88,30 @@ button {
   animation: recording-waveform 900ms var(--ease-in-out) infinite alternate;
 }
 
-.coach-retry-shake {
-  animation: coach-retry-shake 420ms ease-in-out 2;
-}
-
 ::selection {
   background: var(--brand);
   color: #332d3b;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .coach-sheet {
+  .correction-sheet {
     transform: none;
     transition: opacity 160ms ease;
   }
 
-  .coach-sheet-backdrop {
+  .correction-sheet-backdrop {
     transition: opacity 160ms ease;
   }
 
   @starting-style {
-    .coach-sheet {
+    .correction-sheet {
       opacity: 0;
       transform: none;
     }
 
-    .coach-sheet-backdrop {
+    .correction-sheet-backdrop {
       opacity: 0;
     }
-  }
-
-  .coach-retry-shake {
-    animation: none;
   }
 
   .recording-waveform-bar {

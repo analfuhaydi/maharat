@@ -10,7 +10,7 @@ import {
   getAuthenticatedUserId,
   getMessageReference,
 } from "@/lib/firebase-admin";
-import { generateMateResponse } from "@/lib/groq";
+import { generateMateOpening } from "@/lib/groq";
 
 export async function POST(request: Request) {
   let userId: string;
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const mate = await generateMateResponse([], startRequest.data.timeOfDay);
+    const mate = await generateMateOpening(startRequest.data.timeOfDay);
     const createdAt = Timestamp.now();
     const userReference = firestore.collection("users").doc(userId);
     const conversationReference = userReference

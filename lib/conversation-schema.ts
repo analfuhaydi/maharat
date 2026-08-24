@@ -11,23 +11,20 @@ export const MateResponseSchema = z.object({
   arabicTranslation: z.string().trim().min(1).max(400),
 });
 
-export const CoachOutputSchema = z
-  .object({
-    accepted: z.boolean(),
-    suggestedSpokenVersion: z.string().trim().min(1).max(1000).nullable(),
-  })
-  .superRefine((value, context) => {
-    if (value.accepted && value.suggestedSpokenVersion) {
-      context.addIssue({
-        code: "custom",
-        message: "Accepted coach responses cannot contain feedback.",
-      });
-    }
-  });
+export const MateTurnResultSchema = z.discriminatedUnion("outcome", [
+  z.object({
+    outcome: z.literal("correction"),
+    suggestedSpokenVersion: z.string().trim().min(1).max(1000),
+  }),
+  z.object({
+    outcome: z.literal("reply"),
+    text: z.string().trim().min(1).max(300),
+    arabicTranslation: z.string().trim().min(1).max(400),
+  }),
+]);
 
-export const RetryContextSchema = z.object({
-  transcript: z.string().trim().min(1),
-  suggestedSpokenVersion: z.string().trim().min(1),
+export const MateTurnEnvelopeSchema = z.object({
+  result: MateTurnResultSchema,
 });
 
 export const ConversationStartRequestSchema = z.object({
@@ -63,29 +60,12 @@ export const ConversationCreatedResponseSchema = z.object({
   message: MateMessageSchema,
 });
 
-export const RecordingAttemptKindSchema = z.enum(["initial", "retry"]);
-
-export const RecordingRequestSchema = z.object({
-  attemptKind: RecordingAttemptKindSchema,
-  retryContext: z.string().optional(),
-});
-
 export const ConversationStreamEventSchema = z.union([
   z.object({
-    type: z.literal("coachFeedback"),
-    accepted: z.literal(true),
-  }),
-  z.object({
-    type: z.literal("coachFeedback"),
-    accepted: z.literal(false),
+    type: z.literal("correction"),
     transcript: z.string().min(1),
     suggestedSpokenVersion: z.string().min(1),
   }),
-  z.object({
-    type: z.literal("coachRetryRejected"),
-    transcript: z.string().min(1),
-  }),
-  z.object({ type: z.literal("mateThinking") }),
   z.object({
     type: z.literal("userMessage"),
     message: UserMessageSchema,
@@ -99,8 +79,7 @@ export const ConversationStreamEventSchema = z.union([
 
 export type WhisperResponse = z.infer<typeof WhisperResponseSchema>;
 export type MateResponse = z.infer<typeof MateResponseSchema>;
-export type CoachOutput = z.infer<typeof CoachOutputSchema>;
-export type RetryContext = z.infer<typeof RetryContextSchema>;
+export type MateTurnResult = z.infer<typeof MateTurnResultSchema>;
 export type TimeOfDay = z.infer<
   typeof ConversationStartRequestSchema
 >["timeOfDay"];

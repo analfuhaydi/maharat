@@ -47,13 +47,14 @@ export function getMessageReference(
     .doc(getMessageId(sender, turnNumber));
 }
 
-export async function createNextMessage(
+export async function createConversationTurn(
   conversationReference: FirebaseFirestore.DocumentReference,
-  sender: MessageSender,
-  data: FirebaseFirestore.DocumentData,
+  userMessage: FirebaseFirestore.DocumentData,
+  mateMessage: FirebaseFirestore.DocumentData,
 ) {
   const messagesReference = conversationReference.collection("messages");
-  let messageReference: FirebaseFirestore.DocumentReference | undefined;
+  let userMessageReference: FirebaseFirestore.DocumentReference | undefined;
+  let mateMessageReference: FirebaseFirestore.DocumentReference | undefined;
 
   await firestore.runTransaction(async (transaction) => {
     const messagesSnapshot = await transaction.get(messagesReference);
@@ -66,15 +67,21 @@ export async function createNextMessage(
         );
       }, 0) + 1;
 
-    messageReference = messagesReference.doc(
-      getMessageId(sender, nextTurnNumber),
+    userMessageReference = messagesReference.doc(
+      getMessageId("user", nextTurnNumber),
     );
-    transaction.create(messageReference, data);
+    mateMessageReference = messagesReference.doc(
+      getMessageId("mate", nextTurnNumber + 1),
+    );
+    transaction.create(userMessageReference, userMessage);
+    transaction.create(mateMessageReference, mateMessage);
   });
 
-  if (!messageReference) throw new Error("Message reference was not created.");
+  if (!userMessageReference || !mateMessageReference) {
+    throw new Error("Conversation turn references were not created.");
+  }
 
-  return messageReference;
+  return { userMessageReference, mateMessageReference };
 }
 
 export async function getAuthenticatedUserId(request: Request) {

@@ -2,7 +2,7 @@
 
 - Maharat helps people who know English but struggle to speak it.
 - Maharat Mate holds open conversations about any topic.
-- Maharat Coach checks grammar, phrasing, clarity, and professional spoken English before saving a recording or continuing the conversation.
+- Maharat Mate privately checks each recording for obvious mistakes that weaken professional spoken English. It either suggests a clearer version or continues the conversation.
 
 ## UX and design system
 

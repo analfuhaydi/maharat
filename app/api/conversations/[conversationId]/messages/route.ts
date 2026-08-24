@@ -8,20 +8,17 @@ import {
   ConversationStreamEventSchema,
   MessageSchema,
   MessagesResponseSchema,
-  RecordingRequestSchema,
-  RetryContextSchema,
   type Message,
   type MateMessage,
   type UserMessage,
 } from "@/lib/conversation-schema";
 import {
-  createNextMessage,
+  createConversationTurn,
   firestore,
   getAuthenticatedUserId,
 } from "@/lib/firebase-admin";
 import {
-  generateCoachResponse,
-  generateMateResponse,
+  generateMateTurn,
   transcribeRecording,
   type ConversationMessage,
 } from "@/lib/groq";
@@ -119,35 +116,9 @@ export async function POST(request: Request, context: RouteContext) {
 
   const formData = await request.formData();
   const recording = formData.get("recording");
-  const timing = RecordingRequestSchema.safeParse({
-    attemptKind: formData.get("attemptKind"),
-    retryContext: formData.get("retryContext") ?? undefined,
-  });
 
-  if (!(recording instanceof File) || !timing.success) {
+  if (!(recording instanceof File)) {
     return Response.json({ error: "التسجيل غير صالح." }, { status: 400 });
-  }
-
-  let retryContext: ReturnType<typeof RetryContextSchema.parse> | undefined;
-
-  if (timing.data.attemptKind === "retry") {
-    const rawRetryContext = timing.data.retryContext;
-
-    if (!rawRetryContext) {
-      return Response.json(
-        { error: "بيانات المحاولة غير صالحة." },
-        { status: 400 },
-      );
-    }
-
-    try {
-      retryContext = RetryContextSchema.parse(JSON.parse(rawRetryContext));
-    } catch {
-      return Response.json(
-        { error: "بيانات المحاولة غير صالحة." },
-        { status: 400 },
-      );
-    }
   }
 
   const encoder = new TextEncoder();
@@ -169,72 +140,47 @@ export async function POST(request: Request, context: RouteContext) {
         if (!whisperResponse.text.trim())
           throw new Error("Empty transcription.");
 
-        const coach = await generateCoachResponse({
-          pendingTranscript: whisperResponse.text,
-          attemptKind: timing.data.attemptKind,
-          retryContext,
-        });
+        const mate = await generateMateTurn(
+          toConversationHistory(messages),
+          whisperResponse.text,
+        );
 
-        if (!coach.accepted) {
-          if (timing.data.attemptKind === "initial") {
-            if (!coach.suggestedSpokenVersion) {
-              throw new Error("Initial rejection is missing a suggestion.");
-            }
-
-            send({
-              type: "coachFeedback",
-              accepted: false,
-              transcript: whisperResponse.text,
-              suggestedSpokenVersion: coach.suggestedSpokenVersion,
-            });
-          } else {
-            send({
-              type: "coachRetryRejected",
-              transcript: whisperResponse.text,
-            });
-          }
-
+        if (mate.outcome === "correction") {
+          send({
+            type: "correction",
+            transcript: whisperResponse.text,
+            suggestedSpokenVersion: mate.suggestedSpokenVersion,
+          });
           return;
         }
 
-        send({ type: "coachFeedback", accepted: true });
-
         const userCreatedAt = Timestamp.now();
+        const mateCreatedAt = Timestamp.fromMillis(
+          userCreatedAt.toMillis() + 1,
+        );
         const userMessageData = {
           sender: "user",
           text: whisperResponse.text,
           createdAt: userCreatedAt,
         };
-        const userMessageReference = await createNextMessage(
-          reference,
-          "user",
-          userMessageData,
-        );
+        const mateMessageData = {
+          sender: "mate",
+          text: mate.text,
+          arabicTranslation: mate.arabicTranslation,
+          createdAt: mateCreatedAt,
+        };
+        const { userMessageReference, mateMessageReference } =
+          await createConversationTurn(
+            reference,
+            userMessageData,
+            mateMessageData,
+          );
         const userMessage: UserMessage = {
           id: userMessageReference.id,
           sender: "user",
           text: whisperResponse.text,
           createdAt: userCreatedAt.toDate().toISOString(),
         };
-
-        send({ type: "userMessage", message: userMessage });
-        send({ type: "mateThinking" });
-
-        const mate = await generateMateResponse(
-          toConversationHistory([...messages, userMessage]),
-        );
-
-        const mateCreatedAt = Timestamp.now();
-        const mateMessageReference = await createNextMessage(
-          reference,
-          "mate",
-          {
-            sender: "mate",
-            text: mate.text,
-            arabicTranslation: mate.arabicTranslation,
-            createdAt: mateCreatedAt,
-          },
-        );
         const mateMessage: MateMessage = {
           id: mateMessageReference.id,
           sender: "mate",
@@ -243,6 +189,7 @@ export async function POST(request: Request, context: RouteContext) {
           createdAt: mateCreatedAt.toDate().toISOString(),
         };
 
+        send({ type: "userMessage", message: userMessage });
         send({
           type: "mateMessage",
           message: mateMessage,

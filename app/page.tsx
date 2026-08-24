@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
-import { Languages, LoaderCircle, X } from "lucide-react";
+import { LoaderCircle, X } from "lucide-react";
 import Image from "next/image";
 
 import {
@@ -11,7 +11,6 @@ import {
   MessagesResponseSchema,
   type TimeOfDay,
   type Message,
-  type RetryContext,
 } from "@/lib/conversation-schema";
 import { firebaseAuth } from "@/lib/firebase-client";
 
@@ -23,14 +22,11 @@ type Phase =
   | "restoring"
   | "idle"
   | "recording"
-  | "coaching"
-  | "correcting"
-  | "accepted"
-  | "mate-thinking";
-type AttemptKind = "initial" | "retry";
-type CoachState = {
-  retryContext: RetryContext;
-  currentTranscript: string;
+  | "reviewing"
+  | "correcting";
+type CorrectionState = {
+  transcript: string;
+  suggestedSpokenVersion: string;
 };
 
 function getLocalTimeOfDay(): TimeOfDay {
@@ -41,15 +37,7 @@ function getLocalTimeOfDay(): TimeOfDay {
   return "evening";
 }
 
-function MessageBubble({
-  message,
-  translated,
-  onTranslate,
-}: {
-  message: Message;
-  translated: boolean;
-  onTranslate: () => void;
-}) {
+function MessageBubble({ message }: { message: Message }) {
   const isMate = message.sender === "mate";
   const text = message.text;
 
@@ -67,24 +55,12 @@ function MessageBubble({
         lang="en"
       >
         <p>{text}</p>
-        {isMate && translated ? (
+        {isMate ? (
           <p className="mt-2 text-xs text-secondary" dir="rtl" lang="ar">
             {message.arabicTranslation}
           </p>
         ) : null}
       </div>
-      {isMate ? (
-        <div className="mt-1 flex items-center text-secondary" dir="ltr">
-          <button
-            type="button"
-            onClick={onTranslate}
-            className="grid size-8 place-items-center rounded-full hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
-            aria-label="ترجمة الرسالة"
-          >
-            <Languages className="size-4" />
-          </button>
-        </div>
-      ) : null}
     </article>
   );
 }
@@ -99,25 +75,6 @@ function ReadyPrompt() {
         aria-live="polite"
       >
         <p>Click Join when you&apos;re ready.</p>
-      </div>
-    </article>
-  );
-}
-
-function MateLoadingBubble() {
-  return (
-    <article className="max-w-[86%] self-start">
-      <div
-        className="flex items-center gap-2 rounded-2xl rounded-tr-md bg-[#191b1d] px-4 py-3 text-secondary"
-        dir="rtl"
-        role="status"
-        aria-live="polite"
-      >
-        <LoaderCircle
-          className="size-4 shrink-0 origin-center animate-spin"
-          aria-hidden="true"
-        />
-        <span>مهارات يكتب رده</span>
       </div>
     </article>
   );
@@ -194,41 +151,16 @@ function RecordingActions({
   );
 }
 
-function ReviewStatus() {
-  return (
-    <div
-      className="flex min-h-14 w-full cursor-wait items-center justify-center gap-2 rounded-xl bg-[#272a2d] px-5 font-semibold text-brand"
-      dir="rtl"
-      role="status"
-      aria-live="polite"
-    >
-      <LoaderCircle
-        className="size-4 shrink-0 origin-center animate-spin"
-        aria-hidden="true"
-      />
-      <span>نراجع ردك</span>
-    </div>
-  );
-}
-
-function CoachSheet({
-  coach,
-  phase,
-  recordingElapsedSeconds,
-  onDelete,
-  onRetry,
-  onSend,
+function CorrectionSheet({
+  correction,
+  onRecordAgain,
 }: {
-  coach: CoachState;
-  phase: Extract<Phase, "correcting" | "recording" | "coaching">;
-  recordingElapsedSeconds: number;
-  onDelete: () => void;
-  onRetry: () => void;
-  onSend: () => void;
+  correction: CorrectionState;
+  onRecordAgain: () => void;
 }) {
   return (
     <section
-      className="coach-sheet fixed inset-x-0 bottom-0 z-30 mx-auto max-h-[82svh] max-w-lg overflow-y-auto rounded-t-3xl border border-white/10 bg-[#191b1d] p-5"
+      className="correction-sheet fixed inset-x-0 bottom-0 z-30 mx-auto max-h-[82svh] max-w-lg overflow-y-auto rounded-t-3xl border border-white/10 bg-[#191b1d] p-5"
       dir="rtl"
       role="dialog"
       aria-modal="true"
@@ -242,7 +174,7 @@ function CoachSheet({
             dir="ltr"
             lang="en"
           >
-            {coach.currentTranscript}
+            {correction.transcript}
           </p>
         </div>
         <div>
@@ -252,34 +184,17 @@ function CoachSheet({
             dir="ltr"
             lang="en"
           >
-            {coach.retryContext.suggestedSpokenVersion}
+            {correction.suggestedSpokenVersion}
           </p>
         </div>
       </div>
-      {phase === "correcting" ? (
-        <button
-          type="button"
-          onClick={onRetry}
-          className="mt-6 flex min-h-12 w-full touch-manipulation items-center justify-center rounded-full bg-brand px-5 font-medium text-[#332d3b] transition-colors hover:bg-[#ffc954] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
-        >
-          سجل ردك
-        </button>
-      ) : null}
-
-      {phase === "recording" ? (
-        <div className="mt-6 space-y-3">
-          <div className="flex justify-center">
-            <RecordingTray elapsedSeconds={recordingElapsedSeconds} />
-          </div>
-          <RecordingActions onDelete={onDelete} onSend={onSend} />
-        </div>
-      ) : null}
-
-      {phase === "coaching" ? (
-        <div className="mt-6">
-          <ReviewStatus />
-        </div>
-      ) : null}
+      <button
+        type="button"
+        onClick={onRecordAgain}
+        className="mt-6 flex min-h-12 w-full touch-manipulation items-center justify-center rounded-full bg-brand px-5 font-medium text-[#332d3b] transition-colors hover:bg-[#ffc954] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+      >
+        سجل ردك
+      </button>
     </section>
   );
 }
@@ -339,21 +254,18 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [phase, setPhase] = useState<Phase>("ready");
   const [recordingElapsedSeconds, setRecordingElapsedSeconds] = useState(0);
-  const [coach, setCoach] = useState<CoachState | null>(null);
+  const [correction, setCorrection] = useState<CorrectionState | null>(null);
   const [error, setError] = useState("");
-  const [translatedMessages, setTranslatedMessages] = useState<string[]>([]);
   const [showEndConfirmation, setShowEndConfirmation] = useState(false);
   const conversationId = useRef<string | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const mediaStream = useRef<MediaStream | null>(null);
   const chunks = useRef<Blob[]>([]);
   const recordingStartedAt = useRef(0);
-  const attemptKind = useRef<AttemptKind>("initial");
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const isMateThinking = phase === "mate-thinking";
 
-  function clearCoach() {
-    setCoach(null);
+  function clearCorrection() {
+    setCorrection(null);
   }
 
   function stopMediaStream() {
@@ -418,7 +330,7 @@ export default function Home() {
       behavior: "smooth",
       block: "end",
     });
-  }, [messages, isMateThinking]);
+  }, [messages]);
 
   useEffect(() => {
     if (phase !== "recording") return;
@@ -464,7 +376,7 @@ export default function Home() {
       conversationId.current = conversation.conversationId;
       sessionStorage.setItem(CONVERSATION_ID_KEY, conversation.conversationId);
       setMessages([conversation.message]);
-      clearCoach();
+      clearCorrection();
       setPhase("idle");
     } catch (joinError) {
       console.error("Failed to join conversation", joinError);
@@ -475,12 +387,11 @@ export default function Home() {
     }
   }
 
-  async function startRecording(kind: AttemptKind) {
-    const canStart =
-      kind === "retry" ? phase === "correcting" : phase === "idle";
-    if (!canStart) return;
+  async function startRecording() {
+    if (phase !== "idle" && phase !== "correcting") return;
 
-    attemptKind.current = kind;
+    clearCorrection();
+    setPhase("idle");
     setRecordingElapsedSeconds(0);
     setError("");
 
@@ -505,7 +416,7 @@ export default function Home() {
     } catch (recordingError) {
       console.error("Failed to start recording", recordingError);
       setError("تعذر تشغيل الميكروفون.");
-      setPhase(kind === "retry" ? "correcting" : "idle");
+      setPhase("idle");
     }
   }
 
@@ -520,10 +431,10 @@ export default function Home() {
     recorder.current = null;
     chunks.current = [];
     setError("");
-    setPhase(attemptKind.current === "retry" ? "correcting" : "idle");
+    setPhase("idle");
   }
 
-  async function submitRecording(blob: Blob, kind: AttemptKind) {
+  async function submitRecording(blob: Blob) {
     if (!conversationId.current) return;
 
     const user = firebaseAuth.currentUser;
@@ -531,11 +442,6 @@ export default function Home() {
 
     const form = new FormData();
     form.set("recording", blob, "recording.webm");
-    form.set("attemptKind", kind);
-
-    if (kind === "retry" && coach) {
-      form.set("retryContext", JSON.stringify(coach.retryContext));
-    }
 
     const token = await user.getIdToken();
     const response = await fetch(
@@ -556,39 +462,16 @@ export default function Home() {
     const processLine = (line: string) => {
       const event = ConversationStreamEventSchema.parse(JSON.parse(line));
 
-      if (event.type === "coachFeedback") {
-        if (event.accepted) {
-          attemptKind.current = "initial";
-          clearCoach();
-          setPhase("accepted");
-        } else {
-          setCoach({
-            retryContext: {
-              transcript: event.transcript,
-              suggestedSpokenVersion: event.suggestedSpokenVersion,
-            },
-            currentTranscript: event.transcript,
-          });
-          attemptKind.current = "retry";
-          setPhase("correcting");
-        }
-      }
-
-      if (event.type === "coachRetryRejected") {
-        setCoach((current) =>
-          current
-            ? {
-                ...current,
-                currentTranscript: event.transcript,
-              }
-            : current,
-        );
+      if (event.type === "correction") {
+        setCorrection({
+          transcript: event.transcript,
+          suggestedSpokenVersion: event.suggestedSpokenVersion,
+        });
         setPhase("correcting");
       }
 
-      if (event.type === "mateThinking") setPhase("mate-thinking");
-
       if (event.type === "userMessage") {
+        clearCorrection();
         setMessages((current) => [...current, event.message]);
       }
 
@@ -599,7 +482,7 @@ export default function Home() {
 
       if (event.type === "error") {
         setError(event.message);
-        setPhase(attemptKind.current === "retry" ? "correcting" : "idle");
+        setPhase("idle");
       }
     };
 
@@ -620,8 +503,7 @@ export default function Home() {
     if (phase !== "recording" || !recorder.current) return;
 
     const currentRecorder = recorder.current;
-    const kind = attemptKind.current;
-    setPhase("coaching");
+    setPhase("reviewing");
     setError("");
 
     try {
@@ -639,11 +521,11 @@ export default function Home() {
 
       recorder.current = null;
       chunks.current = [];
-      await submitRecording(blob, kind);
+      await submitRecording(blob);
     } catch (sendError) {
       console.error("Failed to submit recording", sendError);
       setError("تعذر إرسال التسجيل. حاول مرة أخرى.");
-      setPhase(kind === "retry" ? "correcting" : "idle");
+      setPhase("idle");
     }
   }
 
@@ -651,61 +533,39 @@ export default function Home() {
     setShowEndConfirmation(false);
     deleteRecording();
     stopMediaStream();
-    clearCoach();
+    clearCorrection();
     sessionStorage.removeItem(CONVERSATION_ID_KEY);
     conversationId.current = null;
-    attemptKind.current = "initial";
     setMessages([]);
-    setTranslatedMessages([]);
     setError("");
     setPhase("ready");
   }
 
-  const showCoach =
-    coach !== null &&
-    (phase === "correcting" || phase === "recording" || phase === "coaching");
-  const isCoachProcessing = phase === "coaching";
-  const isResponseProcessing =
-    phase === "accepted" || phase === "mate-thinking";
+  const showCorrection = correction !== null && phase === "correcting";
+  const isReviewing = phase === "reviewing";
 
   return (
-    <main className="flex h-svh min-h-0 flex-col overflow-hidden bg-background text-foreground">
+    <main className="mx-auto flex h-svh min-h-0 w-full max-w-lg flex-col overflow-hidden bg-background text-foreground">
       <header className="flex h-20 shrink-0 items-center justify-center">
         <Image src="/maharat-logo.svg" alt="مهارات" width={48} height={48} />
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-5 py-6">
         {messages.length === 0 ? <ReadyPrompt /> : null}
         {messages.map((message) => (
-          <MessageBubble
-            key={message.id}
-            message={message}
-            translated={translatedMessages.includes(message.id)}
-            onTranslate={() =>
-              setTranslatedMessages((current) =>
-                current.includes(message.id)
-                  ? current.filter((id) => id !== message.id)
-                  : [...current, message.id],
-              )
-            }
-          />
+          <MessageBubble key={message.id} message={message} />
         ))}
-        {isMateThinking ? <MateLoadingBubble /> : null}
         <div ref={messagesEndRef} aria-hidden="true" />
       </div>
 
-      {showCoach ? (
+      {showCorrection ? (
         <>
           <div
-            className="coach-sheet-backdrop fixed inset-0 z-20 bg-black/20"
+            className="correction-sheet-backdrop fixed inset-0 z-20 bg-black/20"
             aria-hidden="true"
           />
-          <CoachSheet
-            coach={coach}
-            phase={phase}
-            recordingElapsedSeconds={recordingElapsedSeconds}
-            onDelete={deleteRecording}
-            onRetry={() => void startRecording("retry")}
-            onSend={() => void sendRecording()}
+          <CorrectionSheet
+            correction={correction}
+            onRecordAgain={() => void startRecording()}
           />
         </>
       ) : null}
@@ -719,7 +579,7 @@ export default function Home() {
         </p>
       ) : null}
 
-      {!showCoach ? (
+      {!showCorrection ? (
         <div className="relative shrink-0">
           {phase === "recording" ? (
             <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center px-5 pb-2">
@@ -771,7 +631,7 @@ export default function Home() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => void startRecording("initial")}
+                  onClick={() => void startRecording()}
                   className="flex min-h-14 min-w-0 flex-[0.7] touch-manipulation items-center justify-center rounded-xl bg-brand px-5 font-semibold text-[#332d3b] transition-colors hover:bg-[#ffc954] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
                 >
                   سجل ردك
@@ -786,7 +646,7 @@ export default function Home() {
               />
             ) : null}
 
-            {isCoachProcessing ? (
+            {isReviewing ? (
               <div className="flex" dir="ltr">
                 <button
                   type="button"
@@ -799,26 +659,6 @@ export default function Home() {
                     aria-hidden="true"
                   />
                   <span>نراجع ردك</span>
-                </button>
-              </div>
-            ) : null}
-
-            {isResponseProcessing ? (
-              <div className="flex gap-2" dir="ltr">
-                <button
-                  type="button"
-                  disabled
-                  className="flex min-h-14 min-w-0 flex-[0.3] cursor-wait items-center justify-center rounded-xl bg-[#7d3439] px-3 text-sm font-medium text-[#fff4f0]"
-                >
-                  إنهاء
-                </button>
-                <button
-                  type="button"
-                  disabled
-                  dir="rtl"
-                  className="flex min-h-14 min-w-0 flex-[0.7] cursor-wait items-center justify-center gap-2 rounded-xl bg-brand px-5 font-semibold text-[#332d3b]"
-                >
-                  سجل ردك
                 </button>
               </div>
             ) : null}

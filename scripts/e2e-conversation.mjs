@@ -112,15 +112,12 @@ async function readAudioFixture(name) {
   return readFile(new URL(`fixtures/${name}`, import.meta.url));
 }
 
-async function submitRecording(idToken, audio, attemptKind, retryContext) {
+async function submitRecording(idToken, audio) {
   const form = new FormData();
   form.set(
     "recording",
     new File([audio], "recording.wav", { type: "audio/wav" }),
   );
-  form.set("attemptKind", attemptKind);
-  if (retryContext) form.set("retryContext", JSON.stringify(retryContext));
-
   const response = await fetch(
     `${baseUrl}/api/conversations/${conversationId}/messages`,
     {
@@ -191,64 +188,50 @@ async function run() {
   assert(!("audioBase64" in opening), "Opening response included TTS audio.");
 
   const weakAudio = await readAudioFixture("weak-response.wav");
-  const firstEvents = await submitRecording(auth.idToken, weakAudio, "initial");
-  const firstFeedback = firstEvents.find(
-    (event) => event.type === "coachFeedback",
+  const firstEvents = await submitRecording(auth.idToken, weakAudio);
+  const firstCorrection = firstEvents.find(
+    (event) => event.type === "correction",
   );
-  if (firstFeedback?.accepted !== false) {
+  if (!firstCorrection) {
     const eventTypes = firstEvents.map((event) => event.type).join(", ");
-    throw new Error(`Weak initial answer was accepted. Events: ${eventTypes}`);
+    throw new Error(`Weak response was accepted. Events: ${eventTypes}`);
   }
   assert(
-    firstFeedback.suggestedSpokenVersion,
+    firstCorrection.suggestedSpokenVersion,
     "Suggested spoken version was missing.",
   );
   assert(
-    !("suggestedSpokenVersionAudioBase64" in firstFeedback),
-    "Coach feedback included TTS audio.",
+    !("suggestedSpokenVersionAudioBase64" in firstCorrection),
+    "Correction included TTS audio.",
   );
-  assert(!("lesson" in firstFeedback), "Coach lesson should be removed.");
+  assert(!("lesson" in firstCorrection), "Correction included a lesson.");
   assert(
     firstEvents.every((event) => event.type !== "mateMessage"),
-    "Mate replied to a rejected initial answer.",
+    "Mate replied to a rejected answer.",
   );
 
   const afterFirstRejection = await readMessages(auth.idToken);
   assert(
     afterFirstRejection.messages.every((message) => message.sender !== "user"),
-    "A rejected initial answer was persisted.",
+    "A rejected answer was persisted.",
   );
 
-  const retryContext = {
-    transcript: firstFeedback.transcript,
-    suggestedSpokenVersion: firstFeedback.suggestedSpokenVersion,
-  };
-  const retryEvents = await submitRecording(
-    auth.idToken,
-    weakAudio,
-    "retry",
-    retryContext,
+  const secondRejectedEvents = await submitRecording(auth.idToken, weakAudio);
+  assert(
+    secondRejectedEvents.some((event) => event.type === "correction"),
+    "A new rejected recording did not return its own correction.",
   );
   assert(
-    retryEvents.some((event) => event.type === "coachRetryRejected"),
-    "Rejected retry did not return the retry event.",
-  );
-  assert(
-    retryEvents.every((event) => event.type !== "mateMessage"),
-    "Mate replied to a rejected retry.",
+    secondRejectedEvents.every(
+      (event) => event.type !== "userMessage" && event.type !== "mateMessage",
+    ),
+    "A rejected recording produced conversation messages.",
   );
 
   const strongAudio = await readAudioFixture("corrected-response.wav");
-  const acceptedEvents = await submitRecording(
-    auth.idToken,
-    strongAudio,
-    "retry",
-    retryContext,
-  );
+  const acceptedEvents = await submitRecording(auth.idToken, strongAudio);
   assert(
-    acceptedEvents.some(
-      (event) => event.type === "coachFeedback" && event.accepted === true,
-    ),
+    acceptedEvents.some((event) => event.type === "userMessage"),
     "A clear professional answer was not accepted.",
   );
   const mateEvent = acceptedEvents.find(
@@ -262,7 +245,7 @@ async function run() {
   assert(!("audioBase64" in mateEvent), "Mate response included TTS audio.");
   assert(
     !JSON.stringify(mateEvent).includes("suggestedSpokenVersion"),
-    "Coach feedback leaked into Mate output.",
+    "Correction data leaked into Mate output.",
   );
 
   const afterAcceptance = await readMessages(auth.idToken);
@@ -293,17 +276,17 @@ async function run() {
     ),
     "Recording timestamps leaked into saved messages.",
   );
-  const secondAudio = await readAudioFixture("accepted-response.wav");
-  const secondEvents = await submitRecording(
-    auth.idToken,
-    secondAudio,
-    "initial",
-  );
   assert(
-    secondEvents.some(
-      (event) => event.type === "coachFeedback" && event.accepted === true,
+    afterAcceptance.messages.every(
+      (message) => !("suggestedSpokenVersion" in message),
     ),
-    "A clear initial answer was not accepted.",
+    "Correction data leaked into saved messages.",
+  );
+  const secondAudio = await readAudioFixture("accepted-response.wav");
+  const secondEvents = await submitRecording(auth.idToken, secondAudio);
+  assert(
+    secondEvents.some((event) => event.type === "userMessage"),
+    "A clear answer was not accepted.",
   );
   const secondMateEvent = secondEvents.find(
     (event) => event.type === "mateMessage",
