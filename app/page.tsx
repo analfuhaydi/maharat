@@ -41,10 +41,11 @@ function AudioButton({
   label: string;
   status: PlaybackStatus;
   onClick: () => void;
-  tone?: "neutral" | "red" | "green";
+  tone?: "neutral" | "yellow" | "red" | "green";
 }) {
   const toneClass = {
     neutral: "text-secondary hover:text-foreground",
+    yellow: "bg-brand/15 text-brand hover:bg-brand/25 hover:text-[#ffc954]",
     red: "bg-[#ef9a9a]/15 text-[#ef9a9a] hover:bg-[#ef9a9a]/25 hover:text-[#ffc1c1]",
     green:
       "bg-[#8fce9f]/15 text-[#8fce9f] hover:bg-[#8fce9f]/25 hover:text-[#b8e8c4]",
@@ -102,20 +103,21 @@ function MessageBubble({
         dir="ltr"
         lang="en"
       >
-        <div className="flex items-start gap-2">
-          <p className="min-w-0 flex-1">{text}</p>
-          {isMate ? (
-            <AudioButton
-              label="تشغيل صوت ميت"
-              status={playbackStatus}
-              onClick={onPlay}
-            />
-          ) : null}
-        </div>
+        <p>{text}</p>
         {isMate ? (
-          <p className="mt-2 text-xs text-secondary" dir="rtl" lang="ar">
-            {message.arabicTranslation}
-          </p>
+          <>
+            <p className="mt-2 text-xs text-secondary" dir="rtl" lang="ar">
+              {message.arabicTranslation}
+            </p>
+            <div className="mt-2 flex justify-start">
+              <AudioButton
+                label="تشغيل صوت ميت"
+                status={playbackStatus}
+                onClick={onPlay}
+                tone="yellow"
+              />
+            </div>
+          </>
         ) : null}
       </div>
     </article>
