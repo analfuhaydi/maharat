@@ -73,7 +73,10 @@ function CorrectedAudioButton({
     <button
       type="button"
       onClick={onClick}
-      className="mt-2 flex min-h-9 items-center gap-2 text-sm font-medium text-[#8fce9f] hover:text-[#b2e5bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+      className="mt-2 grid size-9 place-items-center rounded-full text-[#8fce9f] hover:bg-[#8fce9f]/10 hover:text-[#b2e5bd] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+      aria-label={
+        status === "playing" ? "إيقاف الصوت" : "تشغيل الصياغة المقترحة"
+      }
       aria-pressed={status === "playing"}
     >
       {status === "loading" ? (
@@ -83,7 +86,6 @@ function CorrectedAudioButton({
       ) : (
         <Play className="size-4" fill="currentColor" aria-hidden="true" />
       )}
-      <span>{status === "playing" ? "إيقاف صوت نورة" : "استمع بصوت نورة"}</span>
     </button>
   );
 }
@@ -108,6 +110,7 @@ function MessageBubble({
   const isMate = message.sender === "mate";
   const text = message.text;
   const [showTranslation, setShowTranslation] = useState(false);
+  const [showHelpAnswer, setShowHelpAnswer] = useState(false);
 
   return (
     <article
@@ -130,7 +133,7 @@ function MessageBubble({
         ) : null}
       </div>
       {isMate ? (
-        <div className="mt-1 flex justify-start gap-1" dir="ltr">
+        <div className="mt-1 flex flex-wrap justify-start gap-1" dir="ltr">
           <button
             type="button"
             onClick={onReplay}
@@ -164,6 +167,26 @@ function MessageBubble({
           >
             <Languages className="size-4" aria-hidden="true" />
           </button>
+          {message.helpAnswer ? (
+            <button
+              type="button"
+              onClick={() => setShowHelpAnswer((current) => !current)}
+              className="min-h-8 rounded-full px-2.5 text-xs font-medium text-brand hover:bg-brand/10 hover:text-[#ffc954] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              aria-expanded={showHelpAnswer}
+            >
+              {showHelpAnswer ? "إخفاء المساعدة" : "ساعدني أرد"}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {isMate && message.helpAnswer && showHelpAnswer ? (
+        <div className="mt-2 rounded-2xl border border-brand/20 bg-brand/5 px-4 py-3">
+          <p className="text-xs text-secondary" dir="rtl" lang="ar">
+            إجابة مقترحة، قلها كما هي أو غيّرها
+          </p>
+          <p className="mt-2 leading-7" dir="ltr" lang="en">
+            {message.helpAnswer}
+          </p>
         </div>
       ) : null}
     </article>

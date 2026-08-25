@@ -12,6 +12,7 @@ export const WhisperResponseSchema = z
 export const MateResponseSchema = z.object({
   text: z.string().trim().min(1).max(300),
   arabicTranslation: z.string().trim().min(1).max(400),
+  helpAnswer: z.string().trim().min(1).max(500),
 });
 
 export const MateTurnResultSchema = z.discriminatedUnion("outcome", [
@@ -23,6 +24,7 @@ export const MateTurnResultSchema = z.discriminatedUnion("outcome", [
     outcome: z.literal("reply"),
     text: z.string().trim().min(1).max(300),
     arabicTranslation: z.string().trim().min(1).max(400),
+    helpAnswer: z.string().trim().min(1).max(500),
   }),
 ]);
 
@@ -35,6 +37,7 @@ export const MateOpeningEnvelopeSchema = z.object({
     outcome: z.literal("reply"),
     text: z.string().trim().min(1).max(300),
     arabicTranslation: z.string().trim().min(1).max(400),
+    helpAnswer: z.string().trim().min(1).max(500),
   }),
 });
 
@@ -47,6 +50,7 @@ export const MateMessageSchema = z.object({
   sender: z.literal("mate"),
   text: z.string().min(1),
   arabicTranslation: z.string().min(1),
+  helpAnswer: z.string().min(1).optional(),
   createdAt: IsoDateSchema,
 });
 

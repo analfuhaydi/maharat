@@ -33,14 +33,14 @@ For a correction, use exactly:
 {"result":{"outcome":"correction","suggestedSpokenVersion":"..."}}
 
 For a reply, use exactly:
-{"result":{"outcome":"reply","text":"...","arabicTranslation":"..."}}
+{"result":{"outcome":"reply","text":"...","arabicTranslation":"...","helpAnswer":"..."}}
 `.trim();
 
 const MATE_OPENING_JSON_FORMAT_PROMPT = `
 Return only one valid JSON object. Do not include reasoning, commentary, markdown, or tool calls.
 
 Use exactly:
-{"result":{"outcome":"reply","text":"...","arabicTranslation":"..."}}
+{"result":{"outcome":"reply","text":"...","arabicTranslation":"...","helpAnswer":"..."}}
 `.trim();
 
 const MATE_SYSTEM_PROMPT = `
@@ -71,8 +71,11 @@ When continuing the conversation:
 - Do not invent facts or personal experiences.
 - Keep the English reply under 300 characters.
 - Provide a faithful Modern Standard Arabic translation.
+- Ask exactly one question that is easy to answer aloud.
+- Provide helpAnswer as a complete, natural example answer to that question. Keep it to one or two short sentences that are easy to say aloud.
+- The learner may say helpAnswer as written or adapt it. Do not use names or specific personal details that may be false for the learner.
 
-If the conversation is empty, greet the learner naturally and return a reply. Do not introduce a prepared topic or lesson.
+If the conversation is empty, greet the learner naturally, ask one easy question, and return a reply. Do not introduce a prepared lesson.
 
 Place one valid correction or reply in the required result field. Never return your reasoning or fields from the other outcome.
 `.trim();

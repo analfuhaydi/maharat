@@ -50,6 +50,7 @@ export async function POST(request: Request) {
       sender: "mate",
       text: mate.text,
       arabicTranslation: mate.arabicTranslation,
+      helpAnswer: mate.helpAnswer,
       createdAt: createdAt.toDate().toISOString(),
     };
 
@@ -64,6 +65,7 @@ export async function POST(request: Request) {
         sender: "mate",
         text: mate.text,
         arabicTranslation: mate.arabicTranslation,
+        helpAnswer: mate.helpAnswer,
         createdAt,
       });
     });

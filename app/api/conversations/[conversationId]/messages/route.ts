@@ -42,6 +42,7 @@ function documentToMessage(
       sender: "mate",
       text: data.text,
       arabicTranslation: data.arabicTranslation,
+      helpAnswer: data.helpAnswer,
       createdAt: timestampToIso(data.createdAt),
     });
   }
@@ -160,6 +161,7 @@ export async function POST(request: Request, context: RouteContext) {
       sender: "mate",
       text: mate.text,
       arabicTranslation: mate.arabicTranslation,
+      helpAnswer: mate.helpAnswer,
       createdAt: mateCreatedAt,
     };
     const { userMessageReference, mateMessageReference } =
@@ -175,6 +177,7 @@ export async function POST(request: Request, context: RouteContext) {
       sender: "mate",
       text: mate.text,
       arabicTranslation: mate.arabicTranslation,
+      helpAnswer: mate.helpAnswer,
       createdAt: mateCreatedAt.toDate().toISOString(),
     };
 
